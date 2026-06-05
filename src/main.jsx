@@ -20,6 +20,28 @@ const today = () => new Date().toISOString().slice(0, 10);
 const monthShort = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const prettyDate = d => { const x = new Date(d); return x.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); };
 const reportRangeMap = { 'jul-sep-2024': { label: 'Jul 1, 2024 - Sep 30, 2024', subtitle: 'Q3 2024' }, 'oct-dec-2024': { label: 'Oct 1, 2024 - Dec 31, 2024', subtitle: 'Q4 2024' }, 'jan-mar-2024': { label: 'Jan 1, 2024 - Mar 31, 2024', subtitle: 'Q1 2024' }, 'apr-jun-2024': { label: 'Apr 1, 2024 - Jun 30, 2024', subtitle: 'Q2 2024' }, 'jan-2024': { label: 'Jan 1, 2024 - Jan 31, 2024', subtitle: 'Jan 2024' }, 'feb-2024': { label: 'Feb 1, 2024 - Feb 29, 2024', subtitle: 'Feb 2024' }, 'mar-2024': { label: 'Mar 1, 2024 - Mar 31, 2024', subtitle: 'Mar 2024' }, 'year-2024': { label: 'Jan 1, 2024 - Dec 31, 2024', subtitle: '2024' } };
+
+const getDateValue = (row, ...keys) => {
+  const raw = keys.map(k => row?.[k]).find(Boolean) || row?.created_at;
+  const d = raw ? new Date(raw) : null;
+  return d && !Number.isNaN(d.getTime()) ? d : null;
+};
+const isSameMonth = (d, y, m) => d && d.getFullYear() === y && d.getMonth() === m;
+const sumInMonth = (rows, amountKey, y, m, ...dateKeys) =>
+  rows.filter(r => isSameMonth(getDateValue(r, ...dateKeys), y, m)).reduce((a, r) => a + Number(r[amountKey] || 0), 0);
+const getMonthTrend = (current, previous, noun = 'from last month') => {
+  if (!previous && !current) return null;
+  if (!previous && current) return 'New activity this month';
+  const pct = ((current - previous) / previous) * 100;
+  const sign = pct >= 0 ? '+' : '';
+  return `${sign}${pct.toFixed(1)}% ${noun}`;
+};
+const getTrendTone = (current, previous, lowerIsBetter = false) => {
+  if (!previous && !current) return 'muted';
+  const improved = lowerIsBetter ? current <= previous : current >= previous;
+  return improved ? 'good' : 'danger';
+};
+const getTrendIcon = (current, previous) => current >= previous ? 'up' : 'down';
 const normalize = v => String(v ?? '').toLowerCase();
 const csvDownload = (filename, rows) => {
   const data = rows.length ? rows : [{ note: 'No records found' }];
@@ -111,15 +133,25 @@ function getNewEntryModal(page){ return page==='tenants'?'new-tenants':page==='f
 function Content({ page, ctx }) { return page==='dashboard'?<Dashboard ctx={ctx}/>:page==='camps'?<Camps ctx={ctx}/>:page==='tenants'?<Tenants ctx={ctx}/>:page==='finance'?<Finance ctx={ctx}/>:page==='reports'?<Reports ctx={ctx}/>:page==='settings'?<SettingsPage ctx={ctx}/>:<Support ctx={ctx}/>; }
 function filtered(rows,q,fields){ if(!q) return rows; return rows.filter(r=>fields.some(f=>normalize(r[f]).includes(normalize(q)))); }
 function Dashboard({ctx}){
-  const {camps,tenants,charges,expenses,payments}=ctx.data;
+  const {camps,tenants,expenses,payments}=ctx.data;
   const [period,setPeriod]=useState('Monthly');
-  const occupied=tenants.filter(t=>t.status==='Active').length;
-  const capacity=camps.reduce((a,c)=>a+Number(c.capacity||0),0);
-  const maintenance=camps.reduce((a,c)=>a+Number(c.maintenance_count||0),0);
-  const vacant=Math.max(capacity-occupied-maintenance,0);
-  const revenue=charges.reduce((a,c)=>a+Number(c.amount_paid||0),0);
-  const cost=expenses.reduce((a,e)=>a+Number(e.amount||0),0);
-  const occ=capacity?Math.round((occupied/capacity)*100):0;
+  const now=new Date();
+  const y=now.getFullYear(), m=now.getMonth();
+  const prev=new Date(y,m-1,1);
+  const activeTenants=tenants.filter(t=>t.status==='Active').length;
+  const totalBeds=camps.reduce((a,c)=>a+Number(c.capacity||0),0);
+  const maintenanceBeds=camps.reduce((a,c)=>a+Number(c.maintenance_count||0),0);
+  const occupiedBeds=Math.min(activeTenants,totalBeds);
+  const vacantBeds=Math.max(totalBeds-occupiedBeds-maintenanceBeds,0);
+  const collectionTotal=payments.reduce((a,p)=>a+Number(p.amount||0),0);
+  const expenseTotal=expenses.reduce((a,e)=>a+Number(e.amount||0),0);
+  const currentCollection=sumInMonth(payments,'amount',y,m,'payment_date');
+  const previousCollection=sumInMonth(payments,'amount',prev.getFullYear(),prev.getMonth(),'payment_date');
+  const currentExpenses=sumInMonth(expenses,'amount',y,m,'expense_date');
+  const previousExpenses=sumInMonth(expenses,'amount',prev.getFullYear(),prev.getMonth(),'expense_date');
+  const currentProfit=currentCollection-currentExpenses;
+  const previousProfit=previousCollection-previousExpenses;
+  const occ=totalBeds?Math.round((occupiedBeds/totalBeds)*100):0;
   return <section>
     <div className="titleRow responsiveRow">
       <Title title="Operations Overview" sub="Real-time performance analytics for LaborConnect portfolio"/>
@@ -128,14 +160,14 @@ function Dashboard({ctx}){
       </div>
     </div>
     <div className="kpis">
-      <Kpi label="Total Collection" value={money(revenue)} trend="+12.5% from last month" trendTone="good" trendIcon="up"/>
-      <Kpi label="Total Expenses" value={money(cost)} trend="+4.2% increase" trendTone="danger" trendIcon="down"/>
-      <Kpi label="Net Profit" value={money(revenue-cost)} trend="+8.1% net growth" trendTone="good" trendIcon="up"/>
-      <Kpi label="Occupancy Rate" value={`${occ}%`} helper={`${occupied.toLocaleString()} occupied of ${capacity.toLocaleString()} total capacity`} helperIcon="info" bar={occ}/>
+      <Kpi label="Total Collection" value={money(collectionTotal)} trend={getMonthTrend(currentCollection,previousCollection,'from last month')} trendTone={getTrendTone(currentCollection,previousCollection)} trendIcon={getTrendIcon(currentCollection,previousCollection)}/>
+      <Kpi label="Total Expenses" value={money(expenseTotal)} trend={getMonthTrend(currentExpenses,previousExpenses,'vs last month')} trendTone={getTrendTone(currentExpenses,previousExpenses,true)} trendIcon={getTrendIcon(currentExpenses,previousExpenses)}/>
+      <Kpi label="Net Profit" value={money(collectionTotal-expenseTotal)} trend={getMonthTrend(currentProfit,previousProfit,'net growth')} trendTone={getTrendTone(currentProfit,previousProfit)} trendIcon={getTrendIcon(currentProfit,previousProfit)}/>
+      <Kpi label="Occupancy Rate" value={`${occ}%`} helper={`${occupiedBeds.toLocaleString()} occupied / ${totalBeds.toLocaleString()} beds`} helperIcon="info" bar={occ}/>
     </div>
     <div className="grid two dashboardGrid">
       <Card title="Collection vs Expense Trend"><Bars payments={payments} expenses={expenses} period={period}/></Card>
-      <Card title="Occupancy Analytics"><Donut occupied={occupied} vacant={vacant} maintenance={maintenance} total={capacity}/><Legend items={[['Occupied',occupied],['Vacant',vacant],['Maintenance',maintenance]]}/></Card>
+      <Card title="Occupancy Analytics"><OccupancyAnalytics occupied={occupiedBeds} vacant={vacantBeds} maintenance={maintenanceBeds} total={totalBeds}/></Card>
     </div>
     <Card title="Top Performing Camps" action={<button onClick={()=>ctx.setPage('camps')}>View All Assets ›</button>}><CampTable camps={camps.slice(0,4)} compact/></Card>
   </section>
@@ -160,7 +192,7 @@ function Finance({ctx}){
       </div>
     </div>
     <div className="kpis three">
-      <Kpi label="Total Outstanding" value={money(bal)} trend="+4.2% from last month" trendTone="danger" trendIcon="down" bar={due?Math.min(100,(bal/due)*100):0}/>
+      <Kpi label="Total Outstanding" value={money(bal)} helper="Calculated from open balances" helperIcon="info" bar={due?Math.min(100,(bal/due)*100):0}/>
       <Kpi label="Collections Today" value={money(settledToday)} helper="Today's Target: 85%" helperIcon="info" bar={eff}/>
       <div className="bluePanel"><small>Collection Efficiency</small><h1>{eff}%</h1><p>Average processing time: 24h per entry</p><button onClick={()=>ctx.setModal({type:'finance-analysis', rows})}>View Deep Analysis</button></div>
     </div>
@@ -176,11 +208,19 @@ function Reports({ctx}){
   const rows=filtered(ctx.data.expenses,ctx.query,['category','vendor','invoice_no','status']).filter(e=>ctx.filters.expenseCategory==='All'||e.category===ctx.filters.expenseCategory);
   const [rangePreset,setRangePreset]=useState('jul-sep-2024');
   const rangeInfo=reportRangeMap[rangePreset]||reportRangeMap['jul-sep-2024'];
+  const now=new Date();
+  const y=now.getFullYear(), m=now.getMonth();
+  const prev=new Date(y,m-1,1);
   const total=rows.reduce((a,e)=>a+Number(e.amount||0),0);
   const utilities=rows.filter(e=>['DEWA','Gas','Utilities'].includes(e.category)).reduce((a,e)=>a+Number(e.amount||0),0);
   const maintenanceReserve=rows.filter(e=>e.category==='Maintenance').reduce((a,e)=>a+Number(e.amount||0),0);
-  const revenue=ctx.data.charges.reduce((a,c)=>a+Number(c.amount_paid||0),0);
+  const revenue=ctx.data.payments.reduce((a,p)=>a+Number(p.amount||0),0);
   const ratio=total?revenue/Math.max(total,1):0;
+  const currentExpense=sumInMonth(rows,'amount',y,m,'expense_date');
+  const previousExpense=sumInMonth(rows,'amount',prev.getFullYear(),prev.getMonth(),'expense_date');
+  const utilityRows=rows.filter(e=>['DEWA','Gas','Utilities'].includes(e.category));
+  const currentUtilities=sumInMonth(utilityRows,'amount',y,m,'expense_date');
+  const previousUtilities=sumInMonth(utilityRows,'amount',prev.getFullYear(),prev.getMonth(),'expense_date');
   return <section>
     <div className="titleRow responsiveRow">
       <Title title="Expense Reports & Analytics" sub={`Comprehensive financial tracking for ${rangeInfo.subtitle}`}/>
@@ -201,10 +241,10 @@ function Reports({ctx}){
       </div>
     </div>
     <div className="kpis reportKpis">
-      <Kpi label="Total Expenses (MTD)" value={money(total)} trend="+12.4% vs last month" trendTone="danger" trendIcon="up"/>
-      <Kpi label="Utility Costs" value={money(utilities)} trend="-2.1% efficiency gain" trendTone="good" trendIcon="down"/>
-      <Kpi label="Maintenance Reserve" value={money(maintenanceReserve)} helper="85% of budget allocated" helperIcon="info"/>
-      <Kpi label="Revenue / Expense Ratio" value={ratio?`${ratio.toFixed(2)}x`:'—'} helper="Above target (1.30x)" helperTone="good" helperIcon="check"/>
+      <Kpi label="Total Expenses (MTD)" value={money(total)} trend={getMonthTrend(currentExpense,previousExpense,'vs last month')} trendTone={getTrendTone(currentExpense,previousExpense,true)} trendIcon={getTrendIcon(currentExpense,previousExpense)}/>
+      <Kpi label="Utility Costs" value={money(utilities)} trend={getMonthTrend(currentUtilities,previousUtilities,'efficiency trend')} trendTone={getTrendTone(currentUtilities,previousUtilities,true)} trendIcon={getTrendIcon(currentUtilities,previousUtilities)}/>
+      <Kpi label="Maintenance Reserve" value={money(maintenanceReserve)} helper={maintenanceReserve ? 'Based on logged maintenance expenses' : 'No maintenance expenses logged'} helperIcon="info"/>
+      <Kpi label="Revenue / Expense Ratio" value={ratio?`${ratio.toFixed(2)}x`:'—'} helper={ratio ? 'Calculated from real collections and expenses' : 'Needs collection and expense data'} helperTone={ratio?'good':'muted'} helperIcon={ratio?'check':'info'}/>
     </div>
     <div className="reportLayout">
       <Card title="Expense Breakdown"><ExpenseBreak rows={rows}/></Card>
@@ -223,21 +263,42 @@ function Reports({ctx}){
         <Card title="Reports Center" action={<button onClick={()=>ctx.setModal({type:'archive'})}>View All Archive</button>}>
           <div className="reportCards refined">
             {[
-              ['Profit & Loss','Q3 Consolidated'],
-              ['Collection Report','Current Occupancy'],
-              ['Occupancy Trends','Camp Productivity']
+              ['Profit & Loss','Revenue, expenses, and net profit'],
+              ['Collection Report','Rent, WiFi, partial, unpaid'],
+              ['Occupancy Trends','Camp and room utilization']
             ].map(([title,desc])=><div key={title} className="reportCard"><FileUp size={22}/><b>{title}</b><span>{desc}</span><button className="ghost" onClick={()=>csvDownload(`${title}.csv`, rows)}><Download size={15}/> Download PDF</button></div>)}
           </div>
         </Card>
       </div>
     </div>
-    <Card title="Recent Transactions" action={<Select label="" value={ctx.filters.expenseCategory} options={['All',...new Set(ctx.data.expenses.map(e=>e.category).filter(Boolean))]} onChange={v=>ctx.setFilters({...ctx.filters,expenseCategory:v})}/>}>
+    <Card title="Recent Transactions" action={<Select label="" value={ctx.filters.expenseCategory} options={['All',...new Set(ctx.data.expenses.map(e=>e.category).filter(Boolean))]} onChange={v=>ctx.setFilters({...ctx.filters,expenseCategory:v})}/>}> 
       <ExpenseTable rows={rows} ctx={ctx}/>
     </Card>
   </section>
 }
 function SettingsPage({ctx}){ return <section><Title title="Settings" sub="Company settings and operating preferences."/><Card title="Company Profile"><form className="formGrid" onSubmit={e=>{e.preventDefault();ctx.showToast('Settings saved')}}><Field label="Company Name"><input defaultValue="Sarab Al Madina / LaborConnect"/></Field><Field label="Currency"><select defaultValue="AED"><option>AED</option><option>CAD</option></select></Field><Field label="Default VAT %"><input defaultValue="5"/></Field><Field label="Notification Email"><input defaultValue="operations@sarabalmadina.com"/></Field><button className="primary">Save Settings</button></form></Card></section> }
-function Support({ctx}){ return <section><Title title="Support" sub="Create and track internal support requests."/><Card title="Create Support Ticket"><form className="formGrid" onSubmit={e=>{e.preventDefault(); const fd=new FormData(e.currentTarget); ctx.insert('support_tickets',{subject:fd.get('subject'),priority:fd.get('priority'),status:'Open',description:fd.get('description')});}}><Field label="Subject"><input name="subject" required/></Field><Field label="Priority"><select name="priority"><option>Normal</option><option>High</option><option>Urgent</option></select></Field><Field label="Description"><textarea name="description"/></Field><button className="primary">Submit Ticket</button></form></Card><Card title="Support Queue"><table><tbody>{ctx.data.tickets.map(t=><tr key={t.id}><td><b>{t.subject}</b><br/><small>{t.description}</small></td><td><Badge>{t.priority}</Badge></td><td>{t.status}</td></tr>)}</tbody></table></Card></section> }
+function Support({ctx}){
+  const tickets=filtered(ctx.data.tickets,ctx.query,['subject','priority','status','description']);
+  return <section>
+    <Title title="Support" sub="Create and track internal support requests."/>
+    <div className="supportLayout">
+      <Card title="Create Support Ticket">
+        <form className="supportForm" onSubmit={e=>{e.preventDefault(); const fd=new FormData(e.currentTarget); ctx.insert('support_tickets',{subject:fd.get('subject'),priority:fd.get('priority'),status:'Open',description:fd.get('description')}); e.currentTarget.reset();}}>
+          <Field label="Subject"><input name="subject" placeholder="e.g. Missing payment receipt" required/></Field>
+          <Field label="Priority"><select name="priority"><option>Normal</option><option>High</option><option>Urgent</option></select></Field>
+          <Field label="Description"><textarea name="description" placeholder="Describe what needs support..."/></Field>
+          <button className="primary">Submit Ticket</button>
+        </form>
+      </Card>
+      <Card title="Support Queue">
+        {tickets.length ? <div className="supportTable">
+          <div className="supportHeader"><span>Ticket</span><span>Priority</span><span>Status</span></div>
+          {tickets.map(t=><div className="supportRow" key={t.id}><div><b>{t.subject}</b><small>{t.description||'No description added'}</small></div><Badge>{t.priority}</Badge><Badge>{t.status}</Badge></div>)}
+        </div> : <div className="emptyState compact"><b>No support tickets yet</b><span>Submitted tickets will appear here.</span></div>}
+      </Card>
+    </div>
+  </section>
+}
 function DynamicModal({modal,setModal,ctx}){ const close=()=>setModal(null); if(modal.type==='new-camps')return <CampForm close={close} ctx={ctx}/>; if(modal.type==='new-tenants')return <TenantForm close={close} ctx={ctx}/>; if(modal.type==='new-finance'||modal.type==='record-payment')return <PaymentForm close={close} ctx={ctx} charge={modal.charge}/>; if(modal.type==='new-reports'||modal.type==='log-expense'||modal.type==='upload-invoice')return <ExpenseForm close={close} ctx={ctx}/>; if(modal.type==='edit-tenant')return <TenantForm close={close} ctx={ctx} item={modal.item}/>; if(modal.type==='edit-camp')return <CampForm close={close} ctx={ctx} item={modal.item}/>; if(modal.type==='edit-expense')return <ExpenseForm close={close} ctx={ctx} item={modal.item}/>; if(modal.type==='view-tenant')return <Modal title="Tenant Profile" onClose={close} wide><Profile item={modal.item} ctx={ctx}/></Modal>; if(modal.type==='building-filter')return <Modal title="Filter By Building" onClose={close}><div className="optionList">{['All',...new Set(ctx.data.charges.map(c=>c.camp_name).filter(Boolean))].map(b=><button key={b} onClick={()=>{ctx.setFilters({...ctx.filters,building:b}); close();}}>{b}</button>)}</div></Modal>; if(modal.type==='finance-analysis')return <Modal title="Deep Finance Analysis" onClose={close} wide><div className="profile"><div className="kpis three"><Kpi label="Records" value={modal.rows.length}/><Kpi label="Outstanding" value={money(modal.rows.reduce((a,r)=>a+Number(r.balance||0),0))} bad/><Kpi label="Collected" value={money(modal.rows.reduce((a,r)=>a+Number(r.amount_paid||0),0))}/></div><p style={{padding:'0 4px 6px',margin:0,color:'#5d6676'}}>Live finance analysis generated from the current filtered records.</p></div></Modal>; if(modal.type==='archive')return <Modal title="Reports Archive" onClose={close}><div className="emptyState"><b>No archived reports yet</b><span>Downloaded reports will be generated from live records.</span></div></Modal>; if(modal.type==='new-support')return <Modal title="New Support Ticket" onClose={close}><form className="formGrid" onSubmit={e=>{e.preventDefault(); const fd=new FormData(e.currentTarget); ctx.insert('support_tickets',{subject:fd.get('subject'),priority:fd.get('priority'),status:'Open',description:fd.get('description')});}}><Field label="Subject"><input name="subject" required/></Field><Field label="Priority"><select name="priority"><option>Normal</option><option>High</option><option>Urgent</option></select></Field><Field label="Description"><textarea name="description"/></Field><button className="primary">Submit Ticket</button></form></Modal>; return null }
 function CampForm({ctx, close, item}){ return <Modal title={item?'Edit Camp':'Add Camp'} onClose={close} wide><form className="formGrid" onSubmit={e=>{e.preventDefault(); const fd=new FormData(e.currentTarget); const payload=Object.fromEntries(fd); payload.capacity=Number(payload.capacity||0); payload.maintenance_count=Number(payload.maintenance_count||0); item?ctx.update('camps',item.id,payload):ctx.insert('camps',payload);}}><Field label="Camp Name"><input name="name" defaultValue={item?.name} required/></Field><Field label="Location"><input name="location" defaultValue={item?.location} required/></Field><Field label="Rooms"><input name="rooms" type="number" defaultValue={item?.rooms||0}/></Field><Field label="Capacity"><input name="capacity" type="number" defaultValue={item?.capacity||0}/></Field><Field label="Status"><select name="status" defaultValue={item?.status||'Operational'}><option>Operational</option><option>At Capacity</option><option>Maintenance</option></select></Field><Field label="Maintenance Count"><input name="maintenance_count" type="number" defaultValue={item?.maintenance_count||0}/></Field><button className="primary"><Save size={16}/> Save Camp</button></form></Modal> }
 function TenantForm({ctx, close, item}){ return <Modal title={item?'Edit Tenant':'Add Tenant'} onClose={close} wide><form className="formGrid" onSubmit={e=>{e.preventDefault(); const fd=new FormData(e.currentTarget); const payload=Object.fromEntries(fd); payload.docs_complete=fd.get('docs_complete')==='on'; item?ctx.update('tenants',item.id,payload):ctx.insert('tenants',payload);}}><Field label="Tenant Name"><input name="name" defaultValue={item?.name} required/></Field><Field label="Company"><input name="company" defaultValue={item?.company}/></Field><Field label="Room"><input name="room" defaultValue={item?.room}/></Field><Field label="Camp"><input name="camp_name" defaultValue={item?.camp_name}/></Field><Field label="Emirates ID"><input name="emirates_id" defaultValue={item?.emirates_id}/></Field><Field label="Check-in Date"><input type="date" name="check_in_date" defaultValue={item?.check_in_date||today()}/></Field><Field label="Lease End"><input type="date" name="lease_end_date" defaultValue={item?.lease_end_date}/></Field><Field label="Status"><select name="status" defaultValue={item?.status||'Active'}><option>Active</option><option>Expiring</option><option>Checked-out</option></select></Field><label className="check"><input type="checkbox" name="docs_complete" defaultChecked={item?.docs_complete}/> Docs complete</label><button className="primary"><Save size={16}/> Save Tenant</button></form></Modal> }
@@ -257,13 +318,37 @@ function CampTable({camps,ctx,actions}){return <table><thead><tr><th>Camp Detail
 function TenantTable({rows,ctx}){return <table><thead><tr><th>Tenant Name</th><th>Company</th><th>Room / Camp</th><th>Emirates ID</th><th>Check-in Date</th><th>Status</th><th>Actions</th></tr></thead><tbody>{rows.map(t=><tr key={t.id}><td><b>{t.name}</b><br/><small>ID: {t.tenant_code||'—'}</small></td><td>{t.company}</td><td>{t.room}<br/><small>{t.camp_name}</small></td><td>{t.emirates_id}</td><td>{t.check_in_date}</td><td><Badge>{t.status}</Badge></td><td className="rowActions"><button onClick={()=>ctx.setModal({type:'view-tenant',item:t})}><Eye size={16}/></button><button onClick={()=>ctx.setModal({type:'edit-tenant',item:t})}><Edit3 size={16}/></button><button onClick={()=>ctx.update('tenants',t.id,{docs_complete:true})}><FileUp size={16}/></button><button onClick={()=>ctx.remove('tenants',t.id)}><MoreVertical size={16}/></button></td></tr>)}</tbody></table>}
 function FinanceTable({rows,ctx}){return <table><thead><tr><th>Tenant Details</th><th>Room</th><th>Charge</th><th>Amount Due</th><th>Amount Paid</th><th>Balance</th><th>Status</th><th>Receipt No.</th><th>Actions</th></tr></thead><tbody>{rows.map(r=><tr key={r.id}><td><b>{r.tenant_name}</b><br/><small>{r.company}</small></td><td>{r.room}</td><td>{r.charge_type}</td><td>{money(r.amount_due)}</td><td className="good">{money(r.amount_paid)}</td><td className={Number(r.balance)>0?'danger':''}>{money(r.balance)}</td><td><Badge>{r.status}</Badge></td><td>{r.receipt_no||'Pending'}</td><td>{Number(r.balance)>0?<button className="primary small" onClick={()=>ctx.setModal({type:'record-payment',charge:r})}>Record Payment</button>:<button onClick={()=>window.print()}><Printer size={16}/></button>}</td></tr>)}</tbody></table>}
 function ExpenseTable({rows,ctx}){return <table><thead><tr><th>Date</th><th>Category</th><th>Vendor / Recipient</th><th>Amount</th><th>Status</th><th>Invoice</th><th>Actions</th></tr></thead><tbody>{rows.map(e=><tr key={e.id}><td>{e.expense_date}</td><td><Badge>{e.category}</Badge></td><td>{e.vendor}</td><td>{money(e.amount)}</td><td>{e.status}</td><td>{e.invoice_no||e.invoice_path||'No File'}</td><td className="rowActions"><button onClick={()=>ctx.setModal({type:'edit-expense',item:e})}><Edit3 size={16}/></button><button onClick={()=>ctx.remove('expenses',e.id)}><Trash2 size={16}/></button></td></tr>)}</tbody></table>}
+function OccupancyAnalytics({occupied=0,vacant=0,maintenance=0,total=0}){
+  const safeTotal = total || occupied + vacant + maintenance;
+  if(!safeTotal || occupied === 0) {
+    return <div className="occupancyPanel empty">
+      <div className="occupancyEmptyIcon">0%</div>
+      <div className="occupancyEmptyCopy">
+        <b>No occupied rooms yet</b>
+        <span>Add tenant check-ins to activate the occupancy chart.</span>
+      </div>
+      <div className="occupancyStats">
+        <div><span className="dot blue"></span><em>Occupied</em><b>{occupied.toLocaleString()}</b></div>
+        <div><span className="dot grey"></span><em>Vacant</em><b>{vacant.toLocaleString()}</b></div>
+        <div><span className="dot red"></span><em>Maintenance</em><b>{maintenance.toLocaleString()}</b></div>
+      </div>
+    </div>
+  }
+  return <div className="occupancyPanel">
+    <Donut occupied={occupied} vacant={vacant} maintenance={maintenance} total={safeTotal}/>
+    <div className="occupancyStats">
+      <div><span className="dot blue"></span><em>Occupied</em><b>{occupied.toLocaleString()}</b></div>
+      <div><span className="dot grey"></span><em>Vacant</em><b>{vacant.toLocaleString()}</b></div>
+      <div><span className="dot red"></span><em>Maintenance</em><b>{maintenance.toLocaleString()}</b></div>
+    </div>
+  </div>
+}
 function Donut({occupied=0,vacant=0,maintenance=0,total=0}){
   const safeTotal = total || occupied + vacant + maintenance;
-  if(!safeTotal) return <div className="emptyState compact"><b>0% Occupied</b><span>Add camps and tenants to see occupancy.</span></div>;
-  const occPct = Math.round((occupied / safeTotal) * 100);
-  const occDeg = (occupied / safeTotal) * 360;
-  const vacDeg = (vacant / safeTotal) * 360;
-  const gradient = `conic-gradient(var(--blue) 0deg ${occDeg}deg, #d9e1ef ${occDeg}deg ${occDeg + vacDeg}deg, var(--red) ${occDeg + vacDeg}deg 360deg)`;
+  const occPct = safeTotal?Math.round((occupied/safeTotal)*100):0;
+  const occDeg = safeTotal ? (occupied / safeTotal) * 360 : 0;
+  const vacDeg = safeTotal ? (vacant / safeTotal) * 360 : 0;
+  const gradient = safeTotal ? `conic-gradient(var(--blue) 0deg ${occDeg}deg, #d9e1ef ${occDeg}deg ${occDeg + vacDeg}deg, var(--red) ${occDeg + vacDeg}deg 360deg)` : '#eef2f8';
   return <div className="donut" style={{background:gradient}}><div><b>{occPct}%</b><span>Occupied</span></div></div>
 }
 function Legend({items}){return <div className="legend">{items.map(([a,b],i)=><p key={a} className={`legend-${i}`}><span></span><em>{a}</em><b>{Number(b||0).toLocaleString()}</b></p>)}</div>}
