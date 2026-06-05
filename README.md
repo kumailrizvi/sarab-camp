@@ -1,4 +1,4 @@
-# LaborConnect / CampMaster ERP
+# LaborConnect UAE / CampMaster ERP
 
 This is the real app version, not a static HTML prototype.
 
@@ -62,4 +62,3 @@ git add .
 git commit -m "Build CampMaster Supabase app"
 git push origin main
 ```
-# sarab-camp
