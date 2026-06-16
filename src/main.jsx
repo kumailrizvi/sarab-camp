@@ -1,448 +1,109 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { supabase, isSupabaseConfigured } from './supabaseClient';
-import { Building2, LayoutDashboard, Users, WalletCards, BarChart3, Settings, HelpCircle, Search, Download, Plus, Eye, FileUp, MoreVertical, Printer, Filter, Grid2X2, List, X, Upload, Save, Trash2, Edit3, LogOut, ShieldCheck, LockKeyhole, Mail, Database, ServerCog, TrendingUp, TrendingDown, CalendarDays, CheckCircle2, Info } from 'lucide-react';
+import { Building2, LayoutDashboard, Users, WalletCards, BarChart3, Settings, HelpCircle, Search, Download, Plus, Eye, FileUp, MoreVertical, Printer, Filter, Grid2X2, List, X, Upload, Save, Trash2, Edit3, LogOut, ShieldCheck, LockKeyhole, Mail, Database, ServerCog, TrendingUp, TrendingDown, CalendarDays, CheckCircle2, Info, Landmark, BedDouble, ReceiptText, FileText, Home, DoorOpen, HandCoins, BadgeDollarSign } from 'lucide-react';
 import './styles.css';
 
-const roles = {
-  'operations@sarabalmadina.com': { name: 'Munir', designation: 'Operations Supervisor' },
-  'info@sarabalmadina.com': { name: 'Rashid', designation: 'Head Office Staff' },
-  'admin@sarabalmadina.com': { name: 'Arslan', designation: 'Head Office Staff' },
-  'asamaashraf55@gmail.com': { name: 'Asama Ashraf', designation: 'Logistics Manager' },
-  'muzafar@sarabalmadina.com': { name: 'Muzafar Iqbal', designation: 'General Manager' },
-  'ashrafgill@hotmail.com': { name: 'Ch Ashraf', designation: 'Owner / CEO' }
-};
 const modules = [
-  ['dashboard', LayoutDashboard, 'Dashboard'], ['camps', Building2, 'Camps & Rooms'], ['tenants', Users, 'Tenants'], ['finance', WalletCards, 'Finance'], ['reports', BarChart3, 'Reports'], ['settings', Settings, 'Settings'], ['support', HelpCircle, 'Support']
+  ['dashboard', LayoutDashboard, 'Executive Dashboard'],
+  ['companies', Building2, 'Companies'],
+  ['contracts', FileText, 'Contracts'],
+  ['camps', Home, 'Camps'],
+  ['rooms', BedDouble, 'Rooms'],
+  ['tenants', Users, 'Tenants'],
+  ['allocations', DoorOpen, 'Allocations'],
+  ['rent', HandCoins, 'Rent Collection'],
+  ['expenses', ReceiptText, 'Expenses'],
+  ['cheques', Landmark, 'Cheques'],
+  ['settings', Settings, 'Settings'],
+  ['support', HelpCircle, 'Support']
 ];
-const money = n => `AED ${Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: Number(n || 0) % 1 ? 2 : 0, maximumFractionDigits: 2 })}`;
-const today = () => new Date().toISOString().slice(0, 10);
-const monthShort = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-const prettyDate = d => { const x = new Date(d); return x.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); };
-const reportRangeMap = { 'jul-sep-2024': { label: 'Jul 1, 2024 - Sep 30, 2024', subtitle: 'Q3 2024' }, 'oct-dec-2024': { label: 'Oct 1, 2024 - Dec 31, 2024', subtitle: 'Q4 2024' }, 'jan-mar-2024': { label: 'Jan 1, 2024 - Mar 31, 2024', subtitle: 'Q1 2024' }, 'apr-jun-2024': { label: 'Apr 1, 2024 - Jun 30, 2024', subtitle: 'Q2 2024' }, 'jan-2024': { label: 'Jan 1, 2024 - Jan 31, 2024', subtitle: 'Jan 2024' }, 'feb-2024': { label: 'Feb 1, 2024 - Feb 29, 2024', subtitle: 'Feb 2024' }, 'mar-2024': { label: 'Mar 1, 2024 - Mar 31, 2024', subtitle: 'Mar 2024' }, 'year-2024': { label: 'Jan 1, 2024 - Dec 31, 2024', subtitle: '2024' } };
+const tables = ['companies','contracts','camps','rooms','tenants','allocations','charges','payments','expenses','cheques','support_tickets'];
+const today = () => new Date().toISOString().slice(0,10);
+const money = n => `AED ${Number(n||0).toLocaleString('en-US',{maximumFractionDigits:2,minimumFractionDigits:Number(n||0)%1?2:0})}`;
+const norm = v => String(v ?? '').toLowerCase();
+const sum = (rows, k) => rows.reduce((a,r)=>a+Number(r[k]||0),0);
+const csvDownload = (name, rows) => { const data=rows.length?rows:[{note:'No records'}]; const heads=Object.keys(data[0]); const csv=[heads.join(','),...data.map(r=>heads.map(h=>JSON.stringify(r[h]??'')).join(','))].join('\n'); const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'})); a.download=name; a.click(); URL.revokeObjectURL(a.href); };
+const filterRows = (rows, q, fields) => !q ? rows : rows.filter(r=>fields.some(f=>norm(r[f]).includes(norm(q))));
+function dateObj(row,...keys){ const raw=keys.map(k=>row?.[k]).find(Boolean)||row?.created_at; const d=raw?new Date(raw):null; return d&&!isNaN(d)?d:null; }
+function monthSum(rows, key, monthOffset=0, ...dateKeys){ const now=new Date(); const d=new Date(now.getFullYear(), now.getMonth()+monthOffset, 1); return rows.filter(r=>{ const x=dateObj(r,...dateKeys); return x&&x.getFullYear()===d.getFullYear()&&x.getMonth()===d.getMonth(); }).reduce((a,r)=>a+Number(r[key]||0),0); }
+function trend(current, previous, suffix='from last month'){ if(!current&&!previous) return null; if(!previous) return 'New activity this month'; const pct=((current-previous)/previous)*100; return `${pct>=0?'+':''}${pct.toFixed(1)}% ${suffix}`; }
+function trendTone(current, previous, lowerBetter=false){ if(!current&&!previous) return 'muted'; return (lowerBetter ? current<=previous : current>=previous) ? 'good' : 'danger'; }
+function Toast({msg}){ return msg?<div className="toast">{msg}</div>:null; }
+function Badge({children}){ return <span className={`badge ${norm(children).replaceAll(' ','-')}`}>{children||'—'}</span>; }
+function Modal({title,onClose,children,wide}){ return <div className="overlay"><div className={`modal ${wide?'wide':''}`}><div className="modalHead"><h2>{title}</h2><button className="iconBtn" onClick={onClose}><X size={20}/></button></div>{children}</div></div>; }
+function Field({label,children}){ return <label className="field"><span>{label}</span>{children}</label>; }
+function Card({title,action,children}){ return <div className="card">{(title||action)&&<div className="cardHead"><h3>{title}</h3><div className="actions">{action}</div></div>}{children}</div>; }
+function Title({title,sub}){ return <div className="title"><h1>{title}</h1><p>{sub}</p></div>; }
+function Kpi({label,value,trendText,tone='good',helper,icon}){ return <div className="kpi">{icon&&<div className="kpiIcon">{icon}</div>}<small>{label}</small><h2>{value}</h2>{trendText&&<p className={`trend ${tone}`}>{tone==='danger'?<TrendingDown size={16}/>:<TrendingUp size={16}/>} {trendText}</p>}{helper&&<p className="helper"><Info size={15}/>{helper}</p>}</div>; }
 
-const getDateValue = (row, ...keys) => {
-  const raw = keys.map(k => row?.[k]).find(Boolean) || row?.created_at;
-  const d = raw ? new Date(raw) : null;
-  return d && !Number.isNaN(d.getTime()) ? d : null;
-};
-const isSameMonth = (d, y, m) => d && d.getFullYear() === y && d.getMonth() === m;
-const sumInMonth = (rows, amountKey, y, m, ...dateKeys) =>
-  rows.filter(r => isSameMonth(getDateValue(r, ...dateKeys), y, m)).reduce((a, r) => a + Number(r[amountKey] || 0), 0);
-const getMonthTrend = (current, previous, noun = 'from last month') => {
-  if (!previous && !current) return null;
-  if (!previous && current) return 'New activity this month';
-  const pct = ((current - previous) / previous) * 100;
-  const sign = pct >= 0 ? '+' : '';
-  return `${sign}${pct.toFixed(1)}% ${noun}`;
-};
-const getTrendTone = (current, previous, lowerIsBetter = false) => {
-  if (!previous && !current) return 'muted';
-  const improved = lowerIsBetter ? current <= previous : current >= previous;
-  return improved ? 'good' : 'danger';
-};
-const getTrendIcon = (current, previous) => current >= previous ? 'up' : 'down';
-const normalize = v => String(v ?? '').toLowerCase();
-const csvDownload = (filename, rows) => {
-  const data = rows.length ? rows : [{ note: 'No records found' }];
-  const headers = Object.keys(data[0]);
-  const csv = [headers.join(','), ...data.map(r => headers.map(h => JSON.stringify(r[h] ?? '')).join(','))].join('\n');
-  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); a.download = filename; a.click(); URL.revokeObjectURL(a.href);
-};
-function Toast({ msg }) { return msg ? <div className="toast">{msg}</div> : null; }
-function Badge({ children, type }) { return <span className={`badge ${type || normalize(children).replaceAll(' ', '-')}`}>{children}</span>; }
-function Modal({ title, children, onClose, wide }) { return <div className="overlay"><div className={`modal ${wide ? 'wide' : ''}`}><div className="modalHead"><h2>{title}</h2><button className="iconBtn" onClick={onClose}><X size={20}/></button></div>{children}</div></div>; }
-function Field({ label, children }) { return <label className="field"><span>{label}</span>{children}</label>; }
-
-function AuthScreen() {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [err, setErr] = useState('');
-  const [loading, setLoading] = useState(false);
-  async function login(e) {
-    e.preventDefault();
-    if (!supabase) return;
-    setLoading(true);
-    setErr('');
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    setLoading(false);
-    if (error) setErr(error.message);
-  }
-  return <div className="loginShell">
-    <div className="loginBgOrb one" />
-    <div className="loginBgOrb two" />
-    <div className="loginPanel">
-      <div className="loginHero">
-        <div className="loginBrandMark"><Building2 size={34}/></div>
-        <p className="eyebrow">Sarab Al Madina's Portal</p>
-        <h1>LaborConnect</h1>
-        <p className="heroCopy">Camp, tenant, rent, WiFi, expense, invoice, and reporting operations in one secure workspace.</p>
-        <div className="heroStats">
-          <div><strong>Real data</strong><span>Sarab Data powered</span></div>
-          <div><strong>Secure login</strong><span>Auth required</span></div>
-          <div><strong>Live records</strong><span>All real data</span></div>
-        </div>
-      </div>
-      <div className="loginFormPanel">
-        <div className="loginHeader">
-          <div>
-            <p className="eyebrow dark">Authorized Access</p>
-            <h2>Sign in to your workspace</h2>
-          </div>
-          <div className="secureBadge"><ShieldCheck size={18}/> Secure</div>
-        </div>
-        {!isSupabaseConfigured && <div className="setupNotice">
-          <ServerCog size={20}/>
-          <div><strong>Database connection required</strong><span>Add the database URL and public key in your .env file, then restart npm run dev.</span></div>
-        </div>}
-        <form onSubmit={login} className="authForm">
-          <label className="authField"><span>Email</span><div><Mail size={18}/><input value={email} onChange={e=>setEmail(e.target.value)} placeholder="Email" autoComplete="email"/></div></label>
-          <label className="authField"><span>Password</span><div><LockKeyhole size={18}/><input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="Enter password" autoComplete="current-password"/></div></label>
-          {err && <p className="error clean">{err}</p>}
-          <button className="loginButton" disabled={loading || !isSupabaseConfigured}>{loading ? 'Signing in...' : 'Login to ERP'}</button>
-        </form>
-        <div className="loginFoot">
-          <span><Database size={15}/> Sarab Data powered</span>
-          <span>v1.0</span>
-        </div>
-      </div>
-    </div>
-  </div>;
+function AuthScreen(){
+  const [email,setEmail]=useState(''); const [password,setPassword]=useState(''); const [err,setErr]=useState(''); const [loading,setLoading]=useState(false);
+  async function login(e){ e.preventDefault(); if(!supabase) return; setErr(''); setLoading(true); const {error}=await supabase.auth.signInWithPassword({email,password}); setLoading(false); if(error) setErr(error.message); }
+  return <div className="loginShell"><div className="loginPanel"><div className="loginHero"><Building2 size={44}/><p>Sarab Al Madina's Portal</p><h1>LaborConnect</h1><span>Enterprise camp, tenant, contract, rent, expense, cheque and allocation management.</span></div><form className="loginForm" onSubmit={login}><div className="secure"><ShieldCheck size={18}/> Authorized Access</div><h2>Sign in to workspace</h2>{!isSupabaseConfigured&&<div className="setup"><ServerCog size={18}/><span>Add database URL and public key in .env.</span></div>}<Field label="Email"><div className="inputIcon"><Mail size={18}/><input value={email} onChange={e=>setEmail(e.target.value)} placeholder="Email"/></div></Field><Field label="Password"><div className="inputIcon"><LockKeyhole size={18}/><input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="Enter password"/></div></Field>{err&&<p className="error">{err}</p>}<button className="primary" disabled={loading||!isSupabaseConfigured}>{loading?'Signing in...':'Login to ERP'}</button><footer><Database size={15}/> Sarab Data powered</footer></form></div></div>;
 }
 
-function App() {
-  const [session, setSession] = useState(null); const [page, setPage] = useState('dashboard'); const [query, setQuery] = useState(''); const [toast, setToast] = useState(''); const [loading, setLoading] = useState(true);
-  const [data, setData] = useState({ camps: [], tenants: [], charges: [], payments: [], expenses: [], tickets: [] });
-  const [modal, setModal] = useState(null); const [filters, setFilters] = useState({ campLocation: 'All', campStatus: 'All', tenantStatus: 'All', financeTab: 'rent', building: 'All', expenseCategory: 'All' });
-  const profile = { name: 'Asama Ashraf', designation: 'Manager' };
-  const showToast = msg => { setToast(msg); setTimeout(()=>setToast(''), 2200); };
-  useEffect(()=>{ if(!supabase){setLoading(false);return;} supabase.auth.getSession().then(({data})=>{setSession(data.session); setLoading(false);}); const { data: sub } = supabase.auth.onAuthStateChange((_e,s)=>setSession(s)); return ()=>sub.subscription.unsubscribe(); },[]);
+function App(){
+  const [session,setSession]=useState(null); const [loading,setLoading]=useState(true); const [page,setPage]=useState('dashboard'); const [query,setQuery]=useState(''); const [modal,setModal]=useState(null); const [toast,setToast]=useState('');
+  const [data,setData]=useState(Object.fromEntries(tables.map(t=>[t,[]])));
+  const showToast = m => { setToast(m); setTimeout(()=>setToast(''),2400); };
+  useEffect(()=>{ if(!supabase){setLoading(false);return;} supabase.auth.getSession().then(({data})=>{setSession(data.session); setLoading(false);}); const {data:sub}=supabase.auth.onAuthStateChange((_e,s)=>setSession(s)); return()=>sub.subscription.unsubscribe(); },[]);
   useEffect(()=>{ if(session) loadAll(); },[session]);
-  async function loadAll(){ setLoading(true); const calls = await Promise.all(['camps','tenants','charges','payments','expenses','support_tickets'].map(t=>supabase.from(t).select('*').order('created_at',{ascending:false}))); setData({ camps:calls[0].data||[], tenants:calls[1].data||[], charges:calls[2].data||[], payments:calls[3].data||[], expenses:calls[4].data||[], tickets:calls[5].data||[] }); setLoading(false); }
-  async function insert(table, payload){ const {error}=await supabase.from(table).insert(payload); if(error) return showToast(error.message); await loadAll(); setModal(null); showToast('Saved successfully'); }
-  async function update(table, id, payload){ const {error}=await supabase.from(table).update(payload).eq('id',id); if(error) return showToast(error.message); await loadAll(); setModal(null); showToast('Updated successfully'); }
-  async function remove(table, id){ if(!confirm('Delete this record?')) return; const {error}=await supabase.from(table).delete().eq('id',id); if(error) return showToast(error.message); await loadAll(); showToast('Deleted'); }
-  const ctx = { data, filters, setFilters, query, setModal, showToast, insert, update, remove, loadAll, setPage };
+  async function loadAll(){ setLoading(true); const results=await Promise.all(tables.map(t=>supabase.from(t).select('*').order('created_at',{ascending:false}))); setData(Object.fromEntries(tables.map((t,i)=>[t,results[i].data||[]]))); setLoading(false); }
+  async function insert(table,payload){ const {error}=await supabase.from(table).insert(payload); if(error) return showToast(error.message); await loadAll(); setModal(null); showToast('Saved successfully'); }
+  async function update(table,id,payload){ const {error}=await supabase.from(table).update(payload).eq('id',id); if(error) return showToast(error.message); await loadAll(); setModal(null); showToast('Updated successfully'); }
+  async function remove(table,id){ if(!confirm('Delete this record?')) return; const {error}=await supabase.from(table).delete().eq('id',id); if(error) return showToast(error.message); await loadAll(); showToast('Deleted'); }
   if(loading) return <div className="loader">Loading LaborConnect...</div>;
   if(!session) return <AuthScreen/>;
-  const pageRows = getRowsForExport(page, data, filters, query);
-  return <div className="app"><aside className="sidebar"><div className="logo">LaborConnect<small>Sarab Al Madina's Portal</small></div><nav>{modules.map(([key,Icon,label])=><button key={key} onClick={()=>setPage(key)} className={page===key?'active':''}><Icon size={18}/>{label}</button>)}</nav><div className="userCard"><div className="avatar">A</div><div><strong>{profile.name}</strong><small>{profile.designation}</small></div><button title="Logout" className="logoutBtn" onClick={()=>supabase.auth.signOut()}><LogOut size={15}/> Logout</button></div></aside><main><header className="topbar"><div className="search"><Search size={18}/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search records, tenants, camps, receipts..."/></div><button className="ghost" onClick={()=>csvDownload(`${page}_export.csv`, pageRows)}><Download size={16}/> Export</button><button className="primary" onClick={()=>setModal({type:getNewEntryModal(page)})}><Plus size={17}/> New Entry</button></header><Content page={page} ctx={ctx}/></main>{page !== 'dashboard' && <button className="fab" onClick={()=>setModal({type:getNewEntryModal(page)})}><Plus/></button>}{modal && <DynamicModal modal={modal} setModal={setModal} ctx={ctx}/>}<Toast msg={toast}/></div>;
+  const ctx={data,query,setModal,insert,update,remove,loadAll,showToast,setPage};
+  const exportRows = getExportRows(page,data,query);
+  return <div className="app"><aside><div className="brand"><h1>LaborConnect</h1><p>Sarab Al Madina's Portal</p></div><button className="newAsset" onClick={()=>setModal({type:defaultModal(page)})}><Plus size={18}/> New Entry</button><nav>{modules.map(([key,Icon,label])=><button key={key} onClick={()=>setPage(key)} className={page===key?'active':''}><Icon size={18}/>{label}</button>)}</nav><div className="user"><div>A</div><span><b>Asama Ashraf</b><small>Manager</small></span><button onClick={()=>supabase.auth.signOut()} title="Logout"><LogOut size={16}/></button></div></aside><main><header><div className="search"><Search size={18}/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search across enterprise..."/></div><h2>{modules.find(m=>m[0]===page)?.[2]}</h2><button className="secondary" onClick={()=>csvDownload(`${page}.csv`,exportRows)}><Download size={16}/> Export</button><button className="primary" onClick={()=>setModal({type:defaultModal(page)})}><Plus size={16}/> New</button></header><Content page={page} ctx={ctx}/></main>{modal&&<DynamicModal modal={modal} ctx={ctx} close={()=>setModal(null)}/>}<Toast msg={toast}/></div>;
 }
+function defaultModal(page){ return ({companies:'company',contracts:'contract',camps:'camp',rooms:'room',tenants:'tenant',allocations:'allocation',rent:'charge',expenses:'expense',cheques:'cheque',support:'ticket'})[page] || 'company'; }
+function Content({page,ctx}){ const map={dashboard:Dashboard,companies:Companies,contracts:Contracts,camps:Camps,rooms:Rooms,tenants:Tenants,allocations:Allocations,rent:Rent,expenses:Expenses,cheques:Cheques,settings:SettingsPage,support:Support}; const C=map[page]||Dashboard; return <C ctx={ctx}/>; }
+function getExportRows(page,d,q){ const x={companies:d.companies,contracts:d.contracts,camps:d.camps,rooms:d.rooms,tenants:d.tenants,allocations:d.allocations,rent:[...d.charges,...d.payments],expenses:d.expenses,cheques:d.cheques,support:d.support_tickets}[page]||[]; return x; }
 
-function getNewEntryModal(page){ return page==='tenants'?'new-tenants':page==='finance'?'add-charge':page==='reports'?'log-expense':page==='support'?'new-support':'new-camps'; }
-function Content({ page, ctx }) { return page==='dashboard'?<Dashboard ctx={ctx}/>:page==='camps'?<Camps ctx={ctx}/>:page==='tenants'?<Tenants ctx={ctx}/>:page==='finance'?<Finance ctx={ctx}/>:page==='reports'?<Reports ctx={ctx}/>:page==='settings'?<SettingsPage ctx={ctx}/>:<Support ctx={ctx}/>; }
-function filtered(rows,q,fields){ if(!q) return rows; return rows.filter(r=>fields.some(f=>normalize(r[f]).includes(normalize(q)))); }
-function Dashboard({ctx}){
-  const {camps,tenants,expenses,payments}=ctx.data;
-  const [period,setPeriod]=useState('Monthly');
-  const now=new Date();
-  const y=now.getFullYear(), m=now.getMonth();
-  const prev=new Date(y,m-1,1);
-  const activeTenants=tenants.filter(t=>t.status==='Active').length;
-  const totalBeds=camps.reduce((a,c)=>a+Number(c.capacity||0),0);
-  const maintenanceBeds=camps.reduce((a,c)=>a+Number(c.maintenance_count||0),0);
-  const occupiedBeds=Math.min(activeTenants,totalBeds);
-  const vacantBeds=Math.max(totalBeds-occupiedBeds-maintenanceBeds,0);
-  const collectionTotal=payments.reduce((a,p)=>a+Number(p.amount||0),0);
-  const expenseTotal=expenses.reduce((a,e)=>a+Number(e.amount||0),0);
-  const currentCollection=sumInMonth(payments,'amount',y,m,'payment_date');
-  const previousCollection=sumInMonth(payments,'amount',prev.getFullYear(),prev.getMonth(),'payment_date');
-  const currentExpenses=sumInMonth(expenses,'amount',y,m,'expense_date');
-  const previousExpenses=sumInMonth(expenses,'amount',prev.getFullYear(),prev.getMonth(),'expense_date');
-  const currentProfit=currentCollection-currentExpenses;
-  const previousProfit=previousCollection-previousExpenses;
-  const occ=totalBeds?Math.round((occupiedBeds/totalBeds)*100):0;
-  return <section>
-    <div className="titleRow responsiveRow">
-      <Title title="Operations Overview" sub="Real-time performance analytics for LaborConnect portfolio"/>
-      <div className="tabs slim">
-        {['Monthly','Quarterly','Yearly'].map(v=><button key={v} className={period===v?'on':''} onClick={()=>setPeriod(v)}>{v}</button>)}
-      </div>
-    </div>
-    <div className="kpis">
-      <Kpi label="Total Collection" value={money(collectionTotal)} trend={getMonthTrend(currentCollection,previousCollection,'from last month')} trendTone={getTrendTone(currentCollection,previousCollection)} trendIcon={getTrendIcon(currentCollection,previousCollection)}/>
-      <Kpi label="Total Expenses" value={money(expenseTotal)} trend={getMonthTrend(currentExpenses,previousExpenses,'vs last month')} trendTone={getTrendTone(currentExpenses,previousExpenses,true)} trendIcon={getTrendIcon(currentExpenses,previousExpenses)}/>
-      <Kpi label="Net Profit" value={money(collectionTotal-expenseTotal)} trend={getMonthTrend(currentProfit,previousProfit,'net growth')} trendTone={getTrendTone(currentProfit,previousProfit)} trendIcon={getTrendIcon(currentProfit,previousProfit)}/>
-      <Kpi label="Occupancy Rate" value={`${occ}%`} helper={`${occupiedBeds.toLocaleString()} occupied / ${totalBeds.toLocaleString()} beds`} helperIcon="info" bar={occ}/>
-    </div>
-    <div className="grid two dashboardGrid">
-      <Card title="Collection vs Expense Trend"><Bars payments={payments} expenses={expenses} period={period}/></Card>
-      <Card title="Occupancy Analytics"><OccupancyAnalytics occupied={occupiedBeds} vacant={vacantBeds} maintenance={maintenanceBeds} total={totalBeds}/></Card>
-    </div>
-    <Card title="Top Performing Camps" action={<button onClick={()=>ctx.setPage('camps')}>View All Assets ›</button>}><CampTable camps={camps.slice(0,4)} compact/></Card>
-  </section>
-}
-function Camps({ctx}){ const rows=filtered(ctx.data.camps,ctx.query,['name','location','status']).filter(c=>(ctx.filters.campLocation==='All'||c.location===ctx.filters.campLocation)&&(ctx.filters.campStatus==='All'||c.status===ctx.filters.campStatus)); const locs=['All',...new Set(ctx.data.camps.map(c=>c.location).filter(Boolean))]; return <section><Title title="Accommodation Management" sub="Overseeing residential clusters across Dubai and Abu Dhabi."/><div className="filterbar"><Select label="Location" value={ctx.filters.campLocation} options={locs} onChange={v=>ctx.setFilters({...ctx.filters,campLocation:v})}/><Select label="Status" value={ctx.filters.campStatus} options={['All','Operational','At Capacity','Maintenance']} onChange={v=>ctx.setFilters({...ctx.filters,campStatus:v})}/><button className="ghost" onClick={()=>ctx.setFilters({...ctx.filters,campLocation:'All',campStatus:'All'})}>Reset Filters</button></div><div className="kpis"><Kpi label="Total Capacity" value={ctx.data.camps.reduce((a,c)=>a+Number(c.capacity||0),0).toLocaleString()}/><Kpi label="Total Occupancy" value={ctx.data.tenants.filter(t=>t.status==='Active').length.toLocaleString()}/><Kpi label="Vacant Beds" value={Math.max(ctx.data.camps.reduce((a,c)=>a+Number(c.capacity||0),0)-ctx.data.tenants.filter(t=>t.status==='Active').length,0).toLocaleString()}/><Kpi label="Maintenance Required" value={ctx.data.camps.reduce((a,c)=>a+Number(c.maintenance_count||0),0)} bad/></div><Card title="Camp Roster"><CampTable camps={rows} actions ctx={ctx}/></Card></section> }
-function Tenants({ctx}){ const rows=filtered(ctx.data.tenants,ctx.query,['name','company','emirates_id','room','camp_name']).filter(t=>ctx.filters.tenantStatus==='All'||t.status===ctx.filters.tenantStatus); return <section><div className="titleRow"><Title title="Tenants" sub="Tenant registry, lease status, documents and room allocation."/><div className="seg"><button className="on"><List size={18}/></button><button><Grid2X2 size={18}/></button></div></div><div className="filterbar"><Select label="Filter Status" value={ctx.filters.tenantStatus} options={['All','Active','Expiring','Checked-out']} onChange={v=>ctx.setFilters({...ctx.filters,tenantStatus:v})}/><button className="ghost" onClick={()=>ctx.setModal({type:'tenant-filters'})}><Filter size={16}/> Advanced Filters</button><button className="ghost" onClick={()=>csvDownload('tenants.csv', rows)}>Export Excel</button><button className="ghost" onClick={()=>window.print()}>PDF</button></div><Card><TenantTable rows={rows} ctx={ctx}/></Card><div className="kpis"><Kpi label="Total Occupants" value={ctx.data.tenants.length}/><Kpi label="Active Lease" value={ctx.data.tenants.filter(t=>t.status==='Active').length}/><Kpi label="Expiring (30 days)" value={ctx.data.tenants.filter(t=>t.status==='Expiring').length} bad/><Kpi label="Pending Docs" value={ctx.data.tenants.filter(t=>!t.docs_complete).length}/></div></section> }
-function Finance({ctx}){
-  const tab=ctx.filters.financeTab;
-  const allCharges=filtered(ctx.data.charges,ctx.query,['tenant_name','company','room','receipt_no','charge_type','camp_name']);
-  const rows=allCharges
-    .filter(r=>tab==='rent'?r.charge_type==='Rent':tab==='wifi'?r.charge_type==='WiFi':Number(r.balance)>0)
-    .filter(r=>ctx.filters.building==='All'||r.camp_name===ctx.filters.building);
-  const paid=rows.reduce((a,r)=>a+Number(r.amount_paid||0),0), due=rows.reduce((a,r)=>a+Number(r.amount_due||0),0), bal=rows.reduce((a,r)=>a+Number(r.balance||0),0);
-  const eff=due?Math.round((paid/due)*1000)/10:0;
-  const unpaidTotal=allCharges.filter(r=>Number(r.amount_paid||0)===0 && Number(r.balance||0)>0).reduce((a,r)=>a+Number(r.balance||0),0);
-  const partialTotal=allCharges.filter(r=>normalize(r.status)==='partial').reduce((a,r)=>a+Number(r.balance||0),0);
-  const settledToday=ctx.data.payments.filter(p=>p.payment_date===today()).reduce((a,p)=>a+Number(p.amount||0),0);
-  return <section>
-    <div className="financeHead responsiveRow">
-      <Title title="Rent & WiFi Collection" sub="Create dues, record collections, and track outstanding tenant balances."/>
-      <div className="tabs">
-        <button className={tab==='rent'?'on':''} onClick={()=>ctx.setFilters({...ctx.filters,financeTab:'rent'})}>Rent Collections</button>
-        <button className={tab==='wifi'?'on':''} onClick={()=>ctx.setFilters({...ctx.filters,financeTab:'wifi'})}>WiFi Revenue</button>
-        <button className={tab==='outstanding'?'on':''} onClick={()=>ctx.setFilters({...ctx.filters,financeTab:'outstanding'})}>Outstanding Balances</button>
-      </div>
-    </div>
-    <div className="kpis three">
-      <Kpi label="Total Outstanding" value={money(bal)} helper="Calculated from open charge balances" helperIcon="info" bar={due?Math.min(100,(bal/due)*100):0}/>
-      <Kpi label="Collections Today" value={money(settledToday)} helper="Payments recorded today" helperIcon="check" bar={eff}/>
-      <div className="bluePanel"><small>Collection Efficiency</small><h1>{eff}%</h1><p>{due?`${money(paid)} collected from ${money(due)} due`:'Add charges to calculate efficiency'}</p><button onClick={()=>ctx.setModal({type:'finance-analysis', rows})}>View Deep Analysis</button></div>
-    </div>
-    <Card title={`Payment Due Roster`} action={<><button onClick={()=>ctx.setModal({type:'add-charge'})} className="ghost"><Plus size={16}/> Add Charge/Due</button><button onClick={()=>ctx.setModal({type:'record-payment'})} className="primary"><WalletCards size={16}/> Record Payment</button><button onClick={()=>ctx.setModal({type:'building-filter'})} className="ghost"><Filter size={16}/> Filter By Building</button><button className="ghost" onClick={()=>csvDownload('bulk_receipts.csv', rows)}><Download size={16}/> Export</button></>}><FinanceTable rows={rows} ctx={ctx}/></Card>
-    <div className="financeSummaryBar">
-      <span className="sum unpaid"><i></i>Unpaid: {money(unpaidTotal)}</span>
-      <span className="sum partial"><i></i>Partial: {money(partialTotal)}</span>
-      <span className="sum settled"><i></i>Settled Today: {money(settledToday)}</span>
-    </div>
-  </section>
-}
-function Reports({ctx}){
-  const rows=filtered(ctx.data.expenses,ctx.query,['category','vendor','invoice_no','status']).filter(e=>ctx.filters.expenseCategory==='All'||e.category===ctx.filters.expenseCategory);
-  const [rangePreset,setRangePreset]=useState('jul-sep-2024');
-  const rangeInfo=reportRangeMap[rangePreset]||reportRangeMap['jul-sep-2024'];
-  const now=new Date();
-  const y=now.getFullYear(), m=now.getMonth();
-  const prev=new Date(y,m-1,1);
-  const total=rows.reduce((a,e)=>a+Number(e.amount||0),0);
-  const utilities=rows.filter(e=>['DEWA','Gas','Utilities'].includes(e.category)).reduce((a,e)=>a+Number(e.amount||0),0);
-  const maintenanceReserve=rows.filter(e=>e.category==='Maintenance').reduce((a,e)=>a+Number(e.amount||0),0);
-  const revenue=ctx.data.payments.reduce((a,p)=>a+Number(p.amount||0),0);
-  const ratio=total?revenue/Math.max(total,1):0;
-  const currentExpense=sumInMonth(rows,'amount',y,m,'expense_date');
-  const previousExpense=sumInMonth(rows,'amount',prev.getFullYear(),prev.getMonth(),'expense_date');
-  const utilityRows=rows.filter(e=>['DEWA','Gas','Utilities'].includes(e.category));
-  const currentUtilities=sumInMonth(utilityRows,'amount',y,m,'expense_date');
-  const previousUtilities=sumInMonth(utilityRows,'amount',prev.getFullYear(),prev.getMonth(),'expense_date');
-  return <section>
-    <div className="titleRow responsiveRow">
-      <Title title="Expense Reports & Analytics" sub={`Comprehensive financial tracking for ${rangeInfo.subtitle}`}/>
-      <div className="reportToolbar">
-        <label className="dateSelect">
-          <CalendarDays size={16}/>
-          <select value={rangePreset} onChange={e=>setRangePreset(e.target.value)}>
-            <option value="jul-sep-2024">Jul 1, 2024 - Sep 30, 2024</option>
-            <option value="oct-dec-2024">Oct 1, 2024 - Dec 31, 2024</option>
-            <option value="jan-mar-2024">Jan 1, 2024 - Mar 31, 2024</option>
-            <option value="apr-jun-2024">Apr 1, 2024 - Jun 30, 2024</option>
-            <option value="jan-2024">Jan 2024</option>
-            <option value="feb-2024">Feb 2024</option>
-            <option value="mar-2024">Mar 2024</option>
-            <option value="year-2024">Full Year 2024</option>
-          </select>
-        </label>
-      </div>
-    </div>
-    <div className="kpis reportKpis">
-      <Kpi label="Total Expenses (MTD)" value={money(total)} trend={getMonthTrend(currentExpense,previousExpense,'vs last month')} trendTone={getTrendTone(currentExpense,previousExpense,true)} trendIcon={getTrendIcon(currentExpense,previousExpense)}/>
-      <Kpi label="Utility Costs" value={money(utilities)} trend={getMonthTrend(currentUtilities,previousUtilities,'efficiency trend')} trendTone={getTrendTone(currentUtilities,previousUtilities,true)} trendIcon={getTrendIcon(currentUtilities,previousUtilities)}/>
-      <Kpi label="Maintenance Reserve" value={money(maintenanceReserve)} helper={maintenanceReserve ? 'Based on logged maintenance expenses' : 'No maintenance expenses logged'} helperIcon="info"/>
-      <Kpi label="Revenue / Expense Ratio" value={ratio?`${ratio.toFixed(2)}x`:'—'} helper={ratio ? 'Calculated from real collections and expenses' : 'Needs collection and expense data'} helperTone={ratio?'good':'muted'} helperIcon={ratio?'check':'info'}/>
-    </div>
-    <div className="reportLayout">
-      <Card title="Expense Breakdown"><ExpenseBreak rows={rows}/></Card>
-      <div className="reportSide">
-        <div className="actionBanner">
-          <div className="actionBannerIcon"><WalletCards size={28}/></div>
-          <div className="actionBannerCopy">
-            <h3>Log New Expense</h3>
-            <p>Submit invoices for DEWA, Gas, Salaries, or Maintenance.</p>
-          </div>
-          <div className="actionBannerActions">
-            <button className="ghost" onClick={()=>ctx.setModal({type:'upload-invoice'})}><Upload size={16}/> Upload Invoice</button>
-            <button className="primary" onClick={()=>ctx.setModal({type:'log-expense'})}>Log Expense</button>
-          </div>
-        </div>
-        <Card title="Reports Center" action={<button onClick={()=>ctx.setModal({type:'archive'})}>View All Archive</button>}>
-          <div className="reportCards refined">
-            {[
-              ['Profit & Loss','Revenue, expenses, and net profit'],
-              ['Collection Report','Rent, WiFi, partial, unpaid'],
-              ['Occupancy Trends','Camp and room utilization']
-            ].map(([title,desc])=><div key={title} className="reportCard"><FileUp size={22}/><b>{title}</b><span>{desc}</span><button className="ghost" onClick={()=>csvDownload(`${title}.csv`, title==='Collection Report' ? ctx.data.payments : title==='Occupancy Trends' ? ctx.data.tenants : rows)}><Download size={15}/> Download PDF</button></div>)}
-          </div>
-        </Card>
-      </div>
-    </div>
-    <Card title="Recent Transactions" action={<Select label="" value={ctx.filters.expenseCategory} options={['All',...new Set(ctx.data.expenses.map(e=>e.category).filter(Boolean))]} onChange={v=>ctx.setFilters({...ctx.filters,expenseCategory:v})}/>}> 
-      <ExpenseTable rows={rows} ctx={ctx}/>
-    </Card>
-  </section>
-}
-function SettingsPage({ctx}){ return <section><Title title="Settings" sub="Company settings and operating preferences."/><Card title="Company Profile"><form className="formGrid" onSubmit={e=>{e.preventDefault();ctx.showToast('Settings saved')}}><Field label="Company Name"><input defaultValue="Sarab Al Madina / LaborConnect"/></Field><Field label="Currency"><select defaultValue="AED"><option>AED</option><option>CAD</option></select></Field><Field label="Default VAT %"><input defaultValue="5"/></Field><Field label="Notification Email"><input defaultValue="operations@sarabalmadina.com"/></Field><button className="primary">Save Settings</button></form></Card></section> }
-function Support({ctx}){
-  const tickets=filtered(ctx.data.tickets,ctx.query,['subject','priority','status','description']);
-  return <section>
-    <Title title="Support" sub="Create and track internal support requests."/>
-    <div className="supportLayout">
-      <Card title="Create Support Ticket">
-        <form className="supportForm" onSubmit={e=>{e.preventDefault(); const fd=new FormData(e.currentTarget); ctx.insert('support_tickets',{subject:fd.get('subject'),priority:fd.get('priority'),status:'Open',description:fd.get('description')}); e.currentTarget.reset();}}>
-          <Field label="Subject"><input name="subject" placeholder="e.g. Missing payment receipt" required/></Field>
-          <Field label="Priority"><select name="priority"><option>Normal</option><option>High</option><option>Urgent</option></select></Field>
-          <Field label="Description"><textarea name="description" placeholder="Describe what needs support..."/></Field>
-          <button className="primary">Submit Ticket</button>
-        </form>
-      </Card>
-      <Card title="Support Queue">
-        {tickets.length ? <div className="supportTable">
-          <div className="supportHeader"><span>Ticket</span><span>Priority</span><span>Status</span></div>
-          {tickets.map(t=><div className="supportRow" key={t.id}><div><b>{t.subject}</b><small>{t.description||'No description added'}</small></div><Badge>{t.priority}</Badge><Badge>{t.status}</Badge></div>)}
-        </div> : <div className="emptyState compact"><b>No support tickets yet</b><span>Submitted tickets will appear here.</span></div>}
-      </Card>
-    </div>
-  </section>
-}
-function DynamicModal({modal,setModal,ctx}){ const close=()=>setModal(null); if(modal.type==='new-camps')return <CampForm close={close} ctx={ctx}/>; if(modal.type==='new-tenants')return <TenantForm close={close} ctx={ctx}/>; if(modal.type==='new-finance'||modal.type==='record-payment')return <PaymentForm close={close} ctx={ctx} charge={modal.charge}/>; if(modal.type==='add-charge')return <ChargeForm close={close} ctx={ctx} charge={modal.charge}/>; if(modal.type==='new-reports'||modal.type==='log-expense'||modal.type==='upload-invoice')return <ExpenseForm close={close} ctx={ctx}/>; if(modal.type==='edit-tenant')return <TenantForm close={close} ctx={ctx} item={modal.item}/>; if(modal.type==='edit-camp')return <CampForm close={close} ctx={ctx} item={modal.item}/>; if(modal.type==='edit-expense')return <ExpenseForm close={close} ctx={ctx} item={modal.item}/>; if(modal.type==='view-tenant')return <Modal title="Tenant Profile" onClose={close} wide><Profile item={modal.item} ctx={ctx}/></Modal>; if(modal.type==='building-filter')return <Modal title="Filter By Building" onClose={close}><div className="optionList">{['All',...new Set(ctx.data.charges.map(c=>c.camp_name).filter(Boolean))].map(b=><button key={b} onClick={()=>{ctx.setFilters({...ctx.filters,building:b}); close();}}>{b}</button>)}</div></Modal>; if(modal.type==='finance-analysis')return <Modal title="Deep Finance Analysis" onClose={close} wide><div className="profile"><div className="kpis three"><Kpi label="Records" value={modal.rows.length}/><Kpi label="Outstanding" value={money(modal.rows.reduce((a,r)=>a+Number(r.balance||0),0))} bad/><Kpi label="Collected" value={money(modal.rows.reduce((a,r)=>a+Number(r.amount_paid||0),0))}/></div><p style={{padding:'0 4px 6px',margin:0,color:'#5d6676'}}>Live finance analysis generated from the current filtered records.</p></div></Modal>; if(modal.type==='archive')return <Modal title="Reports Archive" onClose={close}><div className="emptyState"><b>No archived reports yet</b><span>Downloaded reports will be generated from live records.</span></div></Modal>; if(modal.type==='new-support')return <Modal title="New Support Ticket" onClose={close}><form className="formGrid" onSubmit={e=>{e.preventDefault(); const fd=new FormData(e.currentTarget); ctx.insert('support_tickets',{subject:fd.get('subject'),priority:fd.get('priority'),status:'Open',description:fd.get('description')});}}><Field label="Subject"><input name="subject" required/></Field><Field label="Priority"><select name="priority"><option>Normal</option><option>High</option><option>Urgent</option></select></Field><Field label="Description"><textarea name="description"/></Field><button className="primary">Submit Ticket</button></form></Modal>; return null }
-function CampForm({ctx, close, item}){ return <Modal title={item?'Edit Camp':'Add Camp'} onClose={close} wide><form className="formGrid" onSubmit={e=>{e.preventDefault(); const fd=new FormData(e.currentTarget); const payload=Object.fromEntries(fd); payload.capacity=Number(payload.capacity||0); payload.maintenance_count=Number(payload.maintenance_count||0); item?ctx.update('camps',item.id,payload):ctx.insert('camps',payload);}}><Field label="Camp Name"><input name="name" defaultValue={item?.name} required/></Field><Field label="Location"><input name="location" defaultValue={item?.location} required/></Field><Field label="Rooms"><input name="rooms" type="number" defaultValue={item?.rooms||0}/></Field><Field label="Capacity"><input name="capacity" type="number" defaultValue={item?.capacity||0}/></Field><Field label="Status"><select name="status" defaultValue={item?.status||'Operational'}><option>Operational</option><option>At Capacity</option><option>Maintenance</option></select></Field><Field label="Maintenance Count"><input name="maintenance_count" type="number" defaultValue={item?.maintenance_count||0}/></Field><button className="primary"><Save size={16}/> Save Camp</button></form></Modal> }
-function TenantForm({ctx, close, item}){ return <Modal title={item?'Edit Tenant':'Add Tenant'} onClose={close} wide><form className="formGrid" onSubmit={e=>{e.preventDefault(); const fd=new FormData(e.currentTarget); const payload=Object.fromEntries(fd); payload.docs_complete=fd.get('docs_complete')==='on'; item?ctx.update('tenants',item.id,payload):ctx.insert('tenants',payload);}}><Field label="Tenant Name"><input name="name" defaultValue={item?.name} required/></Field><Field label="Company"><input name="company" defaultValue={item?.company}/></Field><Field label="Room"><input name="room" defaultValue={item?.room}/></Field><Field label="Camp"><input name="camp_name" defaultValue={item?.camp_name}/></Field><Field label="Emirates ID"><input name="emirates_id" defaultValue={item?.emirates_id}/></Field><Field label="Check-in Date"><input type="date" name="check_in_date" defaultValue={item?.check_in_date||today()}/></Field><Field label="Lease End"><input type="date" name="lease_end_date" defaultValue={item?.lease_end_date}/></Field><Field label="Status"><select name="status" defaultValue={item?.status||'Active'}><option>Active</option><option>Expiring</option><option>Checked-out</option></select></Field><label className="check"><input type="checkbox" name="docs_complete" defaultChecked={item?.docs_complete}/> Docs complete</label><button className="primary"><Save size={16}/> Save Tenant</button></form></Modal> }
-function ChargeForm({ctx, close, charge}){
-  const [tenantName,setTenantName]=useState(charge?.tenant_name||'');
-  const tenant=ctx.data.tenants.find(t=>t.name===tenantName) || {};
-  return <Modal title={charge?'Edit Charge / Due':'Add Charge / Due'} onClose={close} wide>
-    <form className="formGrid" onSubmit={e=>{e.preventDefault(); const fd=new FormData(e.currentTarget); const amount=Number(fd.get('amount_due')||0); const payload={ tenant_name:fd.get('tenant_name'), company:fd.get('company'), room:fd.get('room'), camp_name:fd.get('camp_name'), charge_type:fd.get('charge_type'), period:fd.get('period'), amount_due:amount, amount_paid:Number(charge?.amount_paid||0), status:charge?.status||'Unpaid', receipt_no:charge?.receipt_no||'' }; charge?ctx.update('charges',charge.id,payload):ctx.insert('charges',payload); }}>
-      <Field label="Tenant"><select name="tenant_name" value={tenantName} onChange={e=>setTenantName(e.target.value)} required><option value="">Select tenant</option>{ctx.data.tenants.map(t=><option key={t.id} value={t.name}>{t.name} — {t.room||'No room'} — {t.camp_name||'No camp'}</option>)}</select></Field>
-      <Field label="Charge Type"><select name="charge_type" defaultValue={charge?.charge_type||'Rent'}><option>Rent</option><option>WiFi</option><option>Other</option></select></Field>
-      <Field label="Company"><input name="company" value={tenant.company||charge?.company||''} readOnly/></Field>
-      <Field label="Room"><input name="room" value={tenant.room||charge?.room||''} readOnly/></Field>
-      <Field label="Camp"><input name="camp_name" value={tenant.camp_name||charge?.camp_name||''} readOnly/></Field>
-      <Field label="Period"><input name="period" defaultValue={charge?.period||new Date().toLocaleString('en-US',{month:'long',year:'numeric'})}/></Field>
-      <Field label="Amount Due"><input name="amount_due" type="number" step="0.01" defaultValue={charge?.amount_due||''} placeholder="e.g. 1200" required/></Field>
-      <button className="primary"><Save size={16}/> Save Charge</button>
-    </form>
-  </Modal>
-}
-function PaymentForm({ctx, close, charge}){
-  const [chargeId,setChargeId]=useState(charge?.id||'');
-  const selectedCharge=ctx.data.charges.find(c=>String(c.id)===String(chargeId));
-  const [tenantName,setTenantName]=useState(charge?.tenant_name||'');
-  const currentTenantName=selectedCharge?.tenant_name || tenantName;
-  const tenant=ctx.data.tenants.find(t=>t.name===currentTenantName) || {};
-  return <Modal title="Record Payment" onClose={close} wide>
-    <form className="formGrid" onSubmit={async e=>{e.preventDefault(); const fd=new FormData(e.currentTarget); const amount=Number(fd.get('amount')); const linkedChargeId=fd.get('charge_id'); const name=selectedCharge?.tenant_name || fd.get('tenant_name'); if(!name) return ctx.showToast('Select a tenant first'); if(!amount || amount<=0) return ctx.showToast('Enter payment amount'); await ctx.insert('payments',{ charge_id:linkedChargeId||null, tenant_name:name, amount, payment_date:fd.get('payment_date'), method:fd.get('method'), receipt_no:fd.get('receipt_no'), notes:fd.get('notes') }); if(linkedChargeId){ const ch=ctx.data.charges.find(c=>String(c.id)===String(linkedChargeId)); if(ch){ const paid=Number(ch.amount_paid||0)+amount; await ctx.update('charges', ch.id, { amount_paid: paid, status: paid>=Number(ch.amount_due||0)?'Fully Paid':'Partial', receipt_no: fd.get('receipt_no') }); }}}}>
-      <Field label="Tenant"><select name="tenant_name" value={currentTenantName} onChange={e=>setTenantName(e.target.value)} disabled={!!selectedCharge} required={!selectedCharge}><option value="">Select tenant</option>{ctx.data.tenants.map(t=><option key={t.id} value={t.name}>{t.name} — {t.room||'No room'} — {t.camp_name||'No camp'}</option>)}</select></Field>
-      <Field label="Link to Charge / Due"><select name="charge_id" value={chargeId} onChange={e=>setChargeId(e.target.value)}><option value="">No linked charge / direct payment</option>{ctx.data.charges.filter(c=>Number(c.balance||0)>0).map(c=><option key={c.id} value={c.id}>{c.tenant_name} — {c.charge_type} — Balance {money(c.balance)}</option>)}</select></Field>
-      <Field label="Charge Type"><select name="charge_type" value={selectedCharge?.charge_type||'Rent'} disabled={!!selectedCharge}><option>Rent</option><option>WiFi</option><option>Other</option></select></Field>
-      <Field label="Payment Date"><input name="payment_date" type="date" defaultValue={today()}/></Field>
-      <Field label="Payment Method"><select name="method"><option>Cash</option><option>Bank Transfer</option><option>Cheque</option><option>Card</option></select></Field>
-      <Field label="Amount Paid"><input name="amount" type="number" step="0.01" defaultValue={selectedCharge?.balance||''} placeholder="e.g. 1200" required/></Field>
-      <Field label="Receipt No."><input name="receipt_no" defaultValue={`LC-${Date.now().toString().slice(-6)}`}/></Field>
-      <Field label="Tenant Info"><input value={[tenant.company,tenant.room,tenant.camp_name].filter(Boolean).join(' · ') || 'Select tenant to populate'} readOnly/></Field>
-      <Field label="Notes / Other Charges"><textarea name="notes" placeholder="Optional rent adjustment, other charge, reference..."/></Field>
-      <button className="primary">Save Payment</button>
-    </form>
-  </Modal>
-}
-function ExpenseForm({ctx, close, item}){ const [file,setFile]=useState(null); return <Modal title={item?'Edit Expense':'Log Expense'} onClose={close} wide><form className="formGrid" onSubmit={async e=>{e.preventDefault(); const fd=new FormData(e.currentTarget); let invoice_path=item?.invoice_path||''; if(file){ const path=`${Date.now()}_${file.name}`; const {error}=await supabase.storage.from('invoices').upload(path,file,{upsert:true}); if(error) return ctx.showToast(error.message); invoice_path=path; } const payload={category:fd.get('category'),vendor:fd.get('vendor'),amount:Number(fd.get('amount')),expense_date:fd.get('expense_date'),status:fd.get('status'),invoice_no:fd.get('invoice_no'),invoice_path}; item?ctx.update('expenses',item.id,payload):ctx.insert('expenses',payload);}}><Field label="Category"><select name="category" defaultValue={item?.category||'DEWA'}><option>DEWA</option><option>Gas</option><option>Salaries</option><option>Maintenance</option><option>Landlord Rent</option><option>Other</option></select></Field><Field label="Vendor / Recipient"><input name="vendor" defaultValue={item?.vendor} required/></Field><Field label="Amount"><input name="amount" type="number" step="0.01" defaultValue={item?.amount||''} required/></Field><Field label="Date"><input name="expense_date" type="date" defaultValue={item?.expense_date||today()}/></Field><Field label="Status"><select name="status" defaultValue={item?.status||'Paid'}><option>Paid</option><option>Processed</option><option>Pending</option><option>Overdue</option></select></Field><Field label="Invoice No."><input name="invoice_no" defaultValue={item?.invoice_no}/></Field><Field label="Upload Invoice"><input type="file" onChange={e=>setFile(e.target.files[0])}/></Field><button className="primary">Save Expense</button></form></Modal> }
-function Kpi({label,value,trend,bad,bar,trendTone,trendIcon,helper,helperTone,helperIcon}){
-  const trendClass = trendTone || (bad ? 'danger' : 'good');
-  const helperClass = helperTone || 'muted';
-  const trendGlyph = trendIcon==='up' ? <TrendingUp size={16}/> : trendIcon==='down' ? <TrendingDown size={16}/> : trendIcon==='info' ? <Info size={15}/> : null;
-  const helperGlyph = helperIcon==='info' ? <Info size={15}/> : helperIcon==='check' ? <CheckCircle2 size={15}/> : null;
-  return <div className="kpi"><small>{label}</small><h2 className={bad?'danger':''}>{value}</h2>{trend&&<p className={`trendRow ${trendClass}`}>{trendGlyph}{trend}</p>}{helper&&<p className={`helperRow ${helperClass}`}>{helperGlyph}{helper}</p>}{bar!==undefined&&<div className="bar"><i style={{width:`${Math.min(100,bar)}%`}}/></div>}</div>
-}
-function Title({title,sub}){return <div className="pageTitle"><h1>{title}</h1><p>{sub}</p></div>}
-function Card({title,action,children}){return <div className="card">{(title||action)&&<div className="cardHead"><div>{title&&<h3>{title}</h3>}</div><div className="actions">{action}</div></div>}{children}</div>}
-function Select({label,value,options,onChange}){return <label className="miniSelect">{label&&<span>{label}</span>}<select value={value} onChange={e=>onChange(e.target.value)}>{options.map(o=><option key={o}>{o}</option>)}</select></label>}
-function CampTable({camps,ctx,actions}){return <table><thead><tr><th>Camp Detail</th><th>Location</th><th>Inventory</th><th>Occupancy</th><th>Status</th>{actions&&<th>Actions</th>}</tr></thead><tbody>{camps.map(c=><tr key={c.id}><td><b>{c.name}</b><br/><small>{c.cluster||'Residential Cluster'}</small></td><td>{c.location}</td><td><b>{c.rooms||0} Rooms</b><br/><small>{c.capacity||0} Max Capacity</small></td><td><div className="thinbar"><i style={{width:`${Math.min(100,Number(c.occupancy_rate||0))}%`}}/></div>{c.occupancy_rate||0}%</td><td><Badge>{c.status}</Badge></td>{actions&&<td className="rowActions"><button onClick={()=>ctx.setModal({type:'edit-camp',item:c})}><Edit3 size={16}/></button><button onClick={()=>ctx.remove('camps',c.id)}><Trash2 size={16}/></button></td>}</tr>)}</tbody></table>}
-function TenantTable({rows,ctx}){return <table><thead><tr><th>Tenant Name</th><th>Company</th><th>Room / Camp</th><th>Emirates ID</th><th>Check-in Date</th><th>Status</th><th>Actions</th></tr></thead><tbody>{rows.map(t=><tr key={t.id}><td><b>{t.name}</b><br/><small>ID: {t.tenant_code||'—'}</small></td><td>{t.company}</td><td>{t.room}<br/><small>{t.camp_name}</small></td><td>{t.emirates_id}</td><td>{t.check_in_date}</td><td><Badge>{t.status}</Badge></td><td className="rowActions"><button onClick={()=>ctx.setModal({type:'view-tenant',item:t})}><Eye size={16}/></button><button onClick={()=>ctx.setModal({type:'edit-tenant',item:t})}><Edit3 size={16}/></button><button onClick={()=>ctx.update('tenants',t.id,{docs_complete:true})}><FileUp size={16}/></button><button onClick={()=>ctx.remove('tenants',t.id)}><MoreVertical size={16}/></button></td></tr>)}</tbody></table>}
-function FinanceTable({rows,ctx}){
-  if(!rows.length) return <div className="emptyState compact"><b>No dues found for this tab</b><span>Add a rent/WiFi charge first. Payments alone will show in collections, but the roster is built from tenant dues.</span><button className="primary" onClick={()=>ctx.setModal({type:'add-charge'})}><Plus size={16}/> Add Charge / Due</button></div>;
-  return <table><thead><tr><th>Tenant Details</th><th>Room</th><th>Charge</th><th>Amount Due</th><th>Amount Paid</th><th>Balance</th><th>Status</th><th>Receipt No.</th><th>Actions</th></tr></thead><tbody>{rows.map(r=><tr key={r.id}><td><b>{r.tenant_name}</b><br/><small>{r.company}</small></td><td>{r.room}</td><td>{r.charge_type}<br/><small>{r.period||'Current period'}</small></td><td>{money(r.amount_due)}</td><td className="good">{money(r.amount_paid)}</td><td className={Number(r.balance)>0?'danger':''}>{money(r.balance)}</td><td><Badge>{r.status}</Badge></td><td>{r.receipt_no||'Pending'}</td><td className="rowActions">{Number(r.balance)>0&&<button className="primary small" onClick={()=>ctx.setModal({type:'record-payment',charge:r})}>Record Payment</button>}<button onClick={()=>ctx.setModal({type:'add-charge',charge:r})}><Edit3 size={16}/></button><button onClick={()=>window.print()}><Printer size={16}/></button></td></tr>)}</tbody></table>
-}
-function ExpenseTable({rows,ctx}){return <table><thead><tr><th>Date</th><th>Category</th><th>Vendor / Recipient</th><th>Amount</th><th>Status</th><th>Invoice</th><th>Actions</th></tr></thead><tbody>{rows.map(e=><tr key={e.id}><td>{e.expense_date}</td><td><Badge>{e.category}</Badge></td><td>{e.vendor}</td><td>{money(e.amount)}</td><td>{e.status}</td><td>{e.invoice_no||e.invoice_path||'No File'}</td><td className="rowActions"><button onClick={()=>ctx.setModal({type:'edit-expense',item:e})}><Edit3 size={16}/></button><button onClick={()=>ctx.remove('expenses',e.id)}><Trash2 size={16}/></button></td></tr>)}</tbody></table>}
-function OccupancyAnalytics({occupied=0,vacant=0,maintenance=0,total=0}){
-  const safeTotal = total || occupied + vacant + maintenance;
-  if(!safeTotal || occupied === 0) {
-    return <div className="occupancyPanel empty">
-      <div className="occupancyEmptyIcon">0%</div>
-      <div className="occupancyEmptyCopy">
-        <b>No occupied rooms yet</b>
-        <span>Add tenant check-ins to activate the occupancy chart.</span>
-      </div>
-      <div className="occupancyStats">
-        <div><span className="dot blue"></span><em>Occupied</em><b>{occupied.toLocaleString()}</b></div>
-        <div><span className="dot grey"></span><em>Vacant</em><b>{vacant.toLocaleString()}</b></div>
-        <div><span className="dot red"></span><em>Maintenance</em><b>{maintenance.toLocaleString()}</b></div>
-      </div>
-    </div>
-  }
-  return <div className="occupancyPanel">
-    <Donut occupied={occupied} vacant={vacant} maintenance={maintenance} total={safeTotal}/>
-    <div className="occupancyStats">
-      <div><span className="dot blue"></span><em>Occupied</em><b>{occupied.toLocaleString()}</b></div>
-      <div><span className="dot grey"></span><em>Vacant</em><b>{vacant.toLocaleString()}</b></div>
-      <div><span className="dot red"></span><em>Maintenance</em><b>{maintenance.toLocaleString()}</b></div>
-    </div>
-  </div>
-}
-function Donut({occupied=0,vacant=0,maintenance=0,total=0}){
-  const safeTotal = total || occupied + vacant + maintenance;
-  const occPct = safeTotal?Math.round((occupied/safeTotal)*100):0;
-  const occDeg = safeTotal ? (occupied / safeTotal) * 360 : 0;
-  const vacDeg = safeTotal ? (vacant / safeTotal) * 360 : 0;
-  const gradient = safeTotal ? `conic-gradient(var(--blue) 0deg ${occDeg}deg, #d9e1ef ${occDeg}deg ${occDeg + vacDeg}deg, var(--red) ${occDeg + vacDeg}deg 360deg)` : '#eef2f8';
-  return <div className="donut" style={{background:gradient}}><div><b>{occPct}%</b><span>Occupied</span></div></div>
-}
-function Legend({items}){return <div className="legend">{items.map(([a,b],i)=><p key={a} className={`legend-${i}`}><span></span><em>{a}</em><b>{Number(b||0).toLocaleString()}</b></p>)}</div>}
-function Bars({payments=[],expenses=[],period='Monthly'}){
-  const activeYear = new Date().getFullYear();
-  const group = [];
-  if(period==='Quarterly'){
-    for(let q=1;q<=4;q++){
-      const months = [(q-1)*3, (q-1)*3+1, (q-1)*3+2];
-      group.push({
-        label:`Q${q}`,
-        collections:payments.filter(p=>months.includes(new Date(p.payment_date||p.created_at).getMonth()) && new Date(p.payment_date||p.created_at).getFullYear()===activeYear).reduce((a,p)=>a+Number(p.amount||0),0),
-        expenses:expenses.filter(e=>months.includes(new Date(e.expense_date||e.created_at).getMonth()) && new Date(e.expense_date||e.created_at).getFullYear()===activeYear).reduce((a,e)=>a+Number(e.amount||0),0)
-      });
-    }
-  } else if(period==='Yearly'){
-    const years = Array.from(new Set([...payments.map(p=>new Date(p.payment_date||p.created_at).getFullYear()), ...expenses.map(e=>new Date(e.expense_date||e.created_at).getFullYear())])).filter(Boolean).sort();
-    const selectedYears = (years.length ? years : [activeYear]).slice(-4);
-    selectedYears.forEach(y=>group.push({
-      label:String(y),
-      collections:payments.filter(p=>new Date(p.payment_date||p.created_at).getFullYear()===y).reduce((a,p)=>a+Number(p.amount||0),0),
-      expenses:expenses.filter(e=>new Date(e.expense_date||e.created_at).getFullYear()===y).reduce((a,e)=>a+Number(e.amount||0),0)
-    }));
-  } else {
-    for(let i=0;i<12;i++){
-      group.push({
-        label:monthShort[i],
-        collections:payments.filter(p=>new Date(p.payment_date||p.created_at).getMonth()===i && new Date(p.payment_date||p.created_at).getFullYear()===activeYear).reduce((a,p)=>a+Number(p.amount||0),0),
-        expenses:expenses.filter(e=>new Date(e.expense_date||e.created_at).getMonth()===i && new Date(e.expense_date||e.created_at).getFullYear()===activeYear).reduce((a,e)=>a+Number(e.amount||0),0)
-      });
-    }
-  }
-  const active = group.filter(d=>d.collections>0 || d.expenses>0);
-  if(!active.length) return <div className="emptyState chartEmpty"><b>No collection or expense data yet</b><span>Record payments and log expenses to build this trend.</span></div>;
-  const max=Math.max(...active.flatMap(d=>[d.collections,d.expenses]),1);
-  return <div className="chartWrap"><div className="chartLegendHead"><span className="chartKey blue">Collections</span><span className="chartKey red">Expenses</span></div><div className="bars">{active.map(d=><div key={d.label}><i title={`Collections ${money(d.collections)}`} style={{height:Math.max(10,(d.collections/max)*140)}}/><em title={`Expenses ${money(d.expenses)}`} style={{height:Math.max(10,(d.expenses/max)*140)}}/><span>{d.label}</span></div>)}</div></div>
-}
-function ExpenseBreak({rows}){
-  if(!rows.length) return <div className="emptyState compact"><b>No expenses logged yet</b><span>Log an expense or upload an invoice to generate this breakdown.</span></div>;
-  const palette=['#0b32a0','#2748bf','#41c98c','#9bb8ff','#c42032'];
-  const cats=[...new Set(rows.map(e=>e.category))].slice(0,5);
-  const total=rows.reduce((a,e)=>a+Number(e.amount||0),0)||1;
-  const segments=cats.map((c,i)=>({ name:c, value:rows.filter(e=>e.category===c).reduce((a,e)=>a+Number(e.amount||0),0), color:palette[i%palette.length] }));
-  return <div className="expenseBreakWrap">
-    <div className="expenseVisual">
-      <div className="expenseVisualGrid">{segments.map(s=><i key={s.name} style={{background:s.color, flex:s.value}}></i>)}</div>
-      <div className="expenseVisualCenter"><span>Total</span><b>100%</b></div>
-    </div>
-    <div className="expenseLegend">{segments.map(s=><p key={s.name}><span style={{background:s.color}}></span>{s.name}<b>{Math.round((s.value/total)*100)}%</b></p>)}</div>
-  </div>
-}
-function Profile({item,ctx}){ const charges=ctx.data.charges.filter(c=>c.tenant_name===item.name); return <div className="profile"><h3>{item.name}</h3><p>{item.company} · {item.room} · {item.camp_name}</p><div className="kpis"><Kpi label="Status" value={item.status}/><Kpi label="Docs" value={item.docs_complete?'Complete':'Pending'}/><Kpi label="Balance" value={money(charges.reduce((a,c)=>a+Number(c.balance||0),0))}/></div><button className="primary" onClick={()=>ctx.setModal({type:'record-payment', charge:charges.find(c=>Number(c.balance)>0)})}>Record Payment</button></div>}
-function getRowsForExport(page,data,filters,q){ if(page==='camps')return filtered(data.camps,q,['name','location','status']); if(page==='tenants')return filtered(data.tenants,q,['name','company','emirates_id']); if(page==='finance')return filtered(data.charges,q,['tenant_name','company','receipt_no']); if(page==='reports')return filtered(data.expenses,q,['category','vendor','invoice_no']); return [...data.camps,...data.tenants,...data.charges,...data.expenses].slice(0,100); }
+function Dashboard({ctx}){ const d=ctx.data; const activeTenants=d.tenants.filter(t=>t.status==='Active').length; const capacity=sum(d.camps,'capacity'); const occupied=Math.min(activeTenants,capacity); const vacant=Math.max(capacity-occupied-sum(d.camps,'maintenance_count'),0); const collected=sum(d.payments,'amount'); const expenses=sum(d.expenses,'amount'); const outstanding=sum(d.charges,'balance'); const thisColl=monthSum(d.payments,'amount',0,'payment_date'); const lastColl=monthSum(d.payments,'amount',-1,'payment_date'); const thisExp=monthSum(d.expenses,'amount',0,'expense_date'); const lastExp=monthSum(d.expenses,'amount',-1,'expense_date'); return <section><div className="heroTitle"><Title title="Executive Dashboard" sub="Live ERP overview for companies, camps, tenants, contracts, collections and expenses."/><button onClick={()=>ctx.setModal({type:'company'})} className="primary"><Plus size={16}/> New Asset</button></div><div className="kpiGrid"><Kpi label="Total Collection" value={money(collected)} trendText={trend(thisColl,lastColl)} tone={trendTone(thisColl,lastColl)} icon={<HandCoins/>}/><Kpi label="Total Expenses" value={money(expenses)} trendText={trend(thisExp,lastExp,'vs last month')} tone={trendTone(thisExp,lastExp,true)} icon={<ReceiptText/>}/><Kpi label="Net Profit" value={money(collected-expenses)} icon={<BadgeDollarSign/>}/><Kpi label="Outstanding" value={money(outstanding)} helper="Open balances from rent/WiFi/other dues" icon={<WalletCards/>}/></div><div className="dashGrid"><Card title="Collection vs Expense Trend"><Bars payments={d.payments} expenses={d.expenses}/></Card><Card title="Occupancy Analytics"><Occupancy occupied={occupied} vacant={vacant} maintenance={sum(d.camps,'maintenance_count')} total={capacity}/></Card></div><Card title="Recent Activity" action={<button className="ghost" onClick={()=>ctx.setPage('rent')}>View collections</button>}><Activity data={d}/></Card></section>; }
+function Bars({payments,expenses}){ const months=[...Array(6)].map((_,i)=>{const date=new Date(); date.setMonth(date.getMonth()-5+i); return {m:date.getMonth(), y:date.getFullYear(), label:date.toLocaleString('en-US',{month:'short'})};}); const rows=months.map(x=>({label:x.label,c:payments.filter(p=>{const d=dateObj(p,'payment_date'); return d&&d.getMonth()===x.m&&d.getFullYear()===x.y}).reduce((a,p)=>a+Number(p.amount||0),0), e:expenses.filter(p=>{const d=dateObj(p,'expense_date'); return d&&d.getMonth()===x.m&&d.getFullYear()===x.y}).reduce((a,p)=>a+Number(p.amount||0),0)})); const max=Math.max(...rows.flatMap(r=>[r.c,r.e]),1); if(rows.every(r=>!r.c&&!r.e)) return <Empty title="No collection or expense data yet" text="Record payments and log expenses to build this trend."/>; return <div className="bars">{rows.map(r=><div key={r.label}><i style={{height:`${Math.max(8,r.c/max*150)}px`}}/><em style={{height:`${Math.max(8,r.e/max*150)}px`}}/><span>{r.label}</span></div>)}</div>; }
+function Occupancy({occupied,vacant,maintenance,total}){ const pct=total?Math.round(occupied/total*100):0; const g=total?`conic-gradient(#006c49 0 ${pct*3.6}deg,#d9e2ef ${pct*3.6}deg ${(pct+(vacant/total*100))*3.6}deg,#ba1a1a 0)`: '#edf2f7'; return <div className="occupancy"><div className="donut" style={{background:g}}><div><b>{pct}%</b><span>Occupied</span></div></div><div className="occRows"><p><i className="green"/>Occupied<b>{occupied}</b></p><p><i/>Vacant<b>{vacant}</b></p><p><i className="red"/>Maintenance<b>{maintenance}</b></p></div>{!total&&<Empty title="No camp capacity yet" text="Add camps and rooms to activate occupancy."/>}</div>; }
+function Activity({data}){ const rows=[...data.payments.map(p=>({t:'Payment',name:p.tenant_name,amount:money(p.amount),date:p.payment_date})),...data.expenses.map(e=>({t:'Expense',name:e.vendor,amount:money(e.amount),date:e.expense_date})),...data.tenants.map(t=>({t:'Tenant',name:t.name,amount:t.status,date:t.check_in_date}))].sort((a,b)=>String(b.date).localeCompare(String(a.date))).slice(0,8); if(!rows.length) return <Empty title="No activity yet" text="Start by adding companies, camps, tenants, dues, and expenses."/>; return <Table cols={['Type','Name','Value','Date']} rows={rows.map(r=>[r.t,r.name,r.amount,r.date])}/>; }
 
-createRoot(document.getElementById('root')).render(<App />);
+function Companies({ctx}){ const rows=filterRows(ctx.data.companies,ctx.query,['name','contact_name','phone','email','status']); return <Directory title="Company Directory" sub="Manage client companies and billing relationships." rows={rows} cols={['Company','Contact','Phone','Status','Balance']} render={c=>[<b>{c.name}</b>,c.contact_name||c.email,c.phone,<Badge>{c.status}</Badge>,money(c.balance)]} onAdd={()=>ctx.setModal({type:'company'})} onEdit={c=>ctx.setModal({type:'company',item:c})} onDelete={c=>ctx.remove('companies',c.id)}/>; }
+function Contracts({ctx}){ const rows=filterRows(ctx.data.contracts,ctx.query,['contract_no','company','camp_name','status']); return <Directory title="Contract Management" sub="Track active, expiring, and renewed accommodation contracts." rows={rows} cols={['Contract','Company','Camp','Dates','Monthly Rent','Status']} render={r=>[r.contract_no||'—',r.company,r.camp_name,`${r.start_date||'—'} → ${r.end_date||'—'}`,money(r.monthly_rent),<Badge>{r.status}</Badge>]} onAdd={()=>ctx.setModal({type:'contract'})} onEdit={r=>ctx.setModal({type:'contract',item:r})} onDelete={r=>ctx.remove('contracts',r.id)}/>; }
+function Camps({ctx}){ const rows=filterRows(ctx.data.camps,ctx.query,['name','location','emirate','status']); return <Directory title="Camp Directory" sub="Residential camp master records, capacity and operational status." rows={rows} cols={['Camp','Location','Rooms','Capacity','Maintenance','Status']} render={c=>[<b>{c.name}</b>,`${c.location||''} ${c.emirate||''}`,c.rooms,c.capacity,c.maintenance_count,<Badge>{c.status}</Badge>]} onAdd={()=>ctx.setModal({type:'camp'})} onEdit={c=>ctx.setModal({type:'camp',item:c})} onDelete={c=>ctx.remove('camps',c.id)}/>; }
+function Rooms({ctx}){ const rows=filterRows(ctx.data.rooms,ctx.query,['room_no','camp_name','status']); return <Directory title="Room Directory" sub="Room inventory, capacity and occupancy management." rows={rows} cols={['Room','Camp','Floor','Capacity','Occupied','Status']} render={r=>[<b>{r.room_no}</b>,r.camp_name,r.floor,r.capacity,r.occupied,<Badge>{r.status}</Badge>]} onAdd={()=>ctx.setModal({type:'room'})} onEdit={r=>ctx.setModal({type:'room',item:r})} onDelete={r=>ctx.remove('rooms',r.id)}/>; }
+function Tenants({ctx}){ const rows=filterRows(ctx.data.tenants,ctx.query,['name','company','emirates_id','room','camp_name','status']); return <Directory title="Tenant Directory" sub="Tenant registry, documents, room and company allocation." rows={rows} cols={['Tenant','Company','Room / Camp','Emirates ID','Lease End','Status']} render={t=>[<b>{t.name}</b>,t.company,`${t.room||'—'} / ${t.camp_name||'—'}`,t.emirates_id,t.lease_end_date,<Badge>{t.status}</Badge>]} onAdd={()=>ctx.setModal({type:'tenant'})} onView={t=>ctx.setModal({type:'tenantView',item:t})} onEdit={t=>ctx.setModal({type:'tenant',item:t})} onDelete={t=>ctx.remove('tenants',t.id)}/>; }
+function Allocations({ctx}){ const rows=filterRows(ctx.data.allocations,ctx.query,['tenant_name','company','camp_name','room','status']); return <Directory title="Room Allocation" sub="Assign tenants to camps and rooms, then track checkout status." rows={rows} cols={['Tenant','Company','Camp','Room','Date','Status']} render={a=>[a.tenant_name,a.company,a.camp_name,a.room,a.allocation_date,<Badge>{a.status}</Badge>]} onAdd={()=>ctx.setModal({type:'allocation'})} onEdit={a=>ctx.setModal({type:'allocation',item:a})} onDelete={a=>ctx.remove('allocations',a.id)}/>; }
+function Rent({ctx}){ const charges=filterRows(ctx.data.charges,ctx.query,['tenant_name','company','charge_type','status','receipt_no']); const payments=filterRows(ctx.data.payments,ctx.query,['tenant_name','company','receipt_no','method']); const outstanding=sum(charges,'balance'); const paidToday=ctx.data.payments.filter(p=>p.payment_date===today()).reduce((a,p)=>a+Number(p.amount||0),0); return <section><div className="heroTitle"><Title title="Rent Collection Overview" sub="Create dues first, then record rent/WiFi/other collections against open balances."/><div className="btnRow"><button className="secondary" onClick={()=>ctx.setModal({type:'charge'})}><Plus size={16}/> Add Charge/Due</button><button className="primary" onClick={()=>ctx.setModal({type:'payment'})}><HandCoins size={16}/> Record Payment</button></div></div><div className="kpiGrid"><Kpi label="Total Outstanding" value={money(outstanding)} helper="Open balances from charges"/><Kpi label="Settled Today" value={money(paidToday)} helper="Payments recorded today"/><Kpi label="Total Collected" value={money(sum(ctx.data.payments,'amount'))}/><Kpi label="Open Dues" value={charges.filter(c=>Number(c.balance)>0).length}/></div><Card title="Payment Due Roster" action={<button className="ghost" onClick={()=>csvDownload('payment_due_roster.csv',charges)}>Export</button>}><ChargesTable rows={charges} ctx={ctx}/></Card><Card title="Payment Records"><PaymentsTable rows={payments}/></Card></section>; }
+function Expenses({ctx}){ const rows=filterRows(ctx.data.expenses,ctx.query,['category','vendor','camp_name','invoice_no','status']); return <section><div className="heroTitle"><Title title="Expense Management" sub="Log expense transactions and upload invoices for camp operations."/><button className="primary" onClick={()=>ctx.setModal({type:'expense'})}><Plus size={16}/> Log Expense</button></div><div className="kpiGrid"><Kpi label="Total Expenses" value={money(sum(rows,'amount'))}/><Kpi label="Utilities" value={money(sum(rows.filter(e=>['DEWA','Gas','Utilities'].includes(e.category)),'amount'))}/><Kpi label="Maintenance" value={money(sum(rows.filter(e=>e.category==='Maintenance'),'amount'))}/><Kpi label="Transactions" value={rows.length}/></div><div className="dashGrid"><Card title="Expense Breakdown"><ExpenseBreak rows={rows}/></Card><Card title="Reports Center"><ReportCards ctx={ctx}/></Card></div><Card title="Recent Transactions"><ExpenseTable rows={rows} ctx={ctx}/></Card></section>; }
+function Cheques({ctx}){ const rows=filterRows(ctx.data.cheques,ctx.query,['cheque_no','bank_name','company','tenant_name','status']); return <Directory title="Cheque Ledger" sub="Cheque inventory, deposits, clearances and bounced status." rows={rows} cols={['Cheque No.','Bank','Company / Tenant','Amount','Due Date','Status']} render={c=>[c.cheque_no,c.bank_name,c.company||c.tenant_name,money(c.amount),c.due_date,<Badge>{c.status}</Badge>]} onAdd={()=>ctx.setModal({type:'cheque'})} onEdit={c=>ctx.setModal({type:'cheque',item:c})} onDelete={c=>ctx.remove('cheques',c.id)}/>; }
+function SettingsPage(){ return <section><Title title="Settings" sub="Company settings and operating preferences."/><Card title="Portal Details"><div className="settingsGrid"><Field label="Portal Name"><input defaultValue="Sarab Al Madina's Portal"/></Field><Field label="Currency"><input defaultValue="AED"/></Field><Field label="Primary Email"><input defaultValue="operations@sarabalmadina.com"/></Field><button className="primary">Save Settings</button></div></Card></section>; }
+function Support({ctx}){ const rows=filterRows(ctx.data.support_tickets,ctx.query,['subject','priority','status']); return <section><Title title="Support" sub="Create and track internal support requests."/><Card title="Create Support Ticket"><TicketForm ctx={ctx}/></Card><Directory title="Support Queue" rows={rows} cols={['Subject','Priority','Status','Created']} render={t=>[<b>{t.subject}</b>,<Badge>{t.priority}</Badge>,<Badge>{t.status}</Badge>,new Date(t.created_at).toLocaleDateString()]} onAdd={()=>ctx.setModal({type:'ticket'})} onEdit={t=>ctx.setModal({type:'ticket',item:t})} onDelete={t=>ctx.remove('support_tickets',t.id)}/></section>; }
+
+function Directory({title,sub,rows,cols,render,onAdd,onView,onEdit,onDelete}){ return <section><div className="heroTitle"><Title title={title} sub={sub}/>{onAdd&&<button className="primary" onClick={onAdd}><Plus size={16}/> New Entry</button>}</div><Card title={title} action={<button className="ghost" onClick={()=>csvDownload(`${title}.csv`,rows)}><Download size={16}/> Export</button>}>{rows.length?<table><thead><tr>{cols.map(c=><th key={c}>{c}</th>)}<th>Actions</th></tr></thead><tbody>{rows.map(r=><tr key={r.id}>{render(r).map((x,i)=><td key={i}>{x||'—'}</td>)}<td className="rowActions">{onView&&<button onClick={()=>onView(r)}><Eye size={16}/></button>}{onEdit&&<button onClick={()=>onEdit(r)}><Edit3 size={16}/></button>}{onDelete&&<button onClick={()=>onDelete(r)}><Trash2 size={16}/></button>}</td></tr>)}</tbody></table>:<Empty title="No records yet" text="Create a new entry to populate this directory." action={onAdd}/>}</Card></section>; }
+function Table({cols,rows}){ return <table><thead><tr>{cols.map(c=><th key={c}>{c}</th>)}</tr></thead><tbody>{rows.map((r,i)=><tr key={i}>{r.map((c,j)=><td key={j}>{c||'—'}</td>)}</tr>)}</tbody></table>; }
+function Empty({title,text,action}){ return <div className="empty"><b>{title}</b><span>{text}</span>{action&&<button className="primary" onClick={action}><Plus size={16}/> Add Record</button>}</div>; }
+function ChargesTable({rows,ctx}){ if(!rows.length) return <Empty title="No charges or dues yet" text="Add rent, WiFi, or other charges to create the payment due roster." action={()=>ctx.setModal({type:'charge'})}/>; return <table><thead><tr><th>Tenant</th><th>Company</th><th>Room/Camp</th><th>Charge</th><th>Due</th><th>Paid</th><th>Balance</th><th>Status</th><th>Actions</th></tr></thead><tbody>{rows.map(r=><tr key={r.id}><td><b>{r.tenant_name}</b></td><td>{r.company}</td><td>{r.room} / {r.camp_name}</td><td>{r.charge_type}<br/><small>{r.period}</small></td><td>{money(r.amount_due)}</td><td className="success">{money(r.amount_paid)}</td><td className={Number(r.balance)>0?'danger':''}>{money(r.balance)}</td><td><Badge>{r.status}</Badge></td><td className="rowActions"><button className="primary small" onClick={()=>ctx.setModal({type:'payment',charge:r})}>Record Payment</button><button onClick={()=>ctx.setModal({type:'charge',item:r})}><Edit3 size={16}/></button></td></tr>)}</tbody></table>; }
+function PaymentsTable({rows}){ if(!rows.length) return <Empty title="No payments recorded yet" text="Record a payment to generate receipts and collection totals."/>; return <table><thead><tr><th>Date</th><th>Tenant</th><th>Company</th><th>Amount</th><th>Method</th><th>Receipt</th></tr></thead><tbody>{rows.map(p=><tr key={p.id}><td>{p.payment_date}</td><td>{p.tenant_name}</td><td>{p.company}</td><td>{money(p.amount)}</td><td>{p.method}</td><td>{p.receipt_no}</td></tr>)}</tbody></table>; }
+function ExpenseTable({rows,ctx}){ if(!rows.length) return <Empty title="No expenses logged yet" text="Log an expense or upload invoice details to populate reports." action={()=>ctx.setModal({type:'expense'})}/>; return <table><thead><tr><th>Date</th><th>Category</th><th>Vendor</th><th>Camp</th><th>Amount</th><th>Status</th><th>Invoice</th><th>Actions</th></tr></thead><tbody>{rows.map(e=><tr key={e.id}><td>{e.expense_date}</td><td><Badge>{e.category}</Badge></td><td>{e.vendor}</td><td>{e.camp_name}</td><td>{money(e.amount)}</td><td><Badge>{e.status}</Badge></td><td>{e.invoice_no||e.invoice_path||'—'}</td><td className="rowActions"><button onClick={()=>ctx.setModal({type:'expense',item:e})}><Edit3 size={16}/></button><button onClick={()=>ctx.remove('expenses',e.id)}><Trash2 size={16}/></button></td></tr>)}</tbody></table>; }
+function ExpenseBreak({rows}){ if(!rows.length) return <Empty title="No expenses logged yet" text="Log an expense to generate this breakdown."/>; const cats=[...new Set(rows.map(r=>r.category||'Other'))]; const total=sum(rows,'amount')||1; return <div className="breakdown">{cats.map((c,i)=>{const v=sum(rows.filter(r=>(r.category||'Other')===c),'amount'); return <p key={c}><i style={{background:['#006c49','#131b2e','#ba1a1a','#75859d','#4edea3'][i%5]}}/><span>{c}</span><b>{Math.round(v/total*100)}%</b></p>})}</div>; }
+function ReportCards({ctx}){ return <div className="reports"><button onClick={()=>csvDownload('profit_loss.csv',ctx.data.expenses)}><FileUp/>Profit & Loss<span>Expenses and net profit</span></button><button onClick={()=>csvDownload('collection_report.csv',ctx.data.payments)}><FileUp/>Collection Report<span>Rent, WiFi, partial, unpaid</span></button><button onClick={()=>csvDownload('occupancy_trends.csv',ctx.data.tenants)}><FileUp/>Occupancy Trends<span>Camp and room utilization</span></button></div>; }
+
+function DynamicModal({modal,ctx,close}){ const p={company:CompanyForm,contract:ContractForm,camp:CampForm,room:RoomForm,tenant:TenantForm,allocation:AllocationForm,charge:ChargeForm,payment:PaymentForm,expense:ExpenseForm,cheque:ChequeForm,ticket:TicketFormModal,tenantView:TenantView}[modal.type]; if(!p) return null; const C=p; return <C ctx={ctx} close={close} item={modal.item} charge={modal.charge}/>; }
+function SelectCompany({ctx,defaultValue,onChange}){ return <select name="company_id" defaultValue={defaultValue||''} onChange={onChange}><option value="">Select company</option>{ctx.data.companies.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select>; }
+function SelectCamp({ctx,defaultValue,onChange}){ return <select name="camp_id" defaultValue={defaultValue||''} onChange={onChange}><option value="">Select camp</option>{ctx.data.camps.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select>; }
+function CompanyForm({ctx,close,item}){ return <Modal title={item?'Edit Company':'Add New Company'} onClose={close} wide><form className="formGrid" onSubmit={e=>{e.preventDefault(); const fd=new FormData(e.currentTarget); const payload=Object.fromEntries(fd); payload.balance=Number(payload.balance||0); item?ctx.update('companies',item.id,payload):ctx.insert('companies',payload);}}><Field label="Company Name"><input name="name" defaultValue={item?.name} required/></Field><Field label="Trade License"><input name="trade_license" defaultValue={item?.trade_license}/></Field><Field label="Contact Name"><input name="contact_name" defaultValue={item?.contact_name}/></Field><Field label="Phone"><input name="phone" defaultValue={item?.phone}/></Field><Field label="Email"><input name="email" defaultValue={item?.email}/></Field><Field label="Status"><select name="status" defaultValue={item?.status||'Active'}><option>Active</option><option>Inactive</option><option>On Hold</option></select></Field><Field label="Opening Balance"><input name="balance" type="number" defaultValue={item?.balance||0}/></Field><button className="primary"><Save size={16}/> Save Company</button></form></Modal>; }
+function CampForm({ctx,close,item}){ return <Modal title={item?'Edit Camp':'Add New Camp'} onClose={close} wide><form className="formGrid" onSubmit={e=>{e.preventDefault(); const fd=new FormData(e.currentTarget); const p=Object.fromEntries(fd); ['rooms','capacity','maintenance_count'].forEach(k=>p[k]=Number(p[k]||0)); item?ctx.update('camps',item.id,p):ctx.insert('camps',p);}}><Field label="Camp Name"><input name="name" defaultValue={item?.name} required/></Field><Field label="Location"><input name="location" defaultValue={item?.location}/></Field><Field label="Emirate"><select name="emirate" defaultValue={item?.emirate||'Dubai'}><option>Dubai</option><option>Abu Dhabi</option><option>Sharjah</option><option>Ajman</option></select></Field><Field label="Rooms"><input name="rooms" type="number" defaultValue={item?.rooms||0}/></Field><Field label="Capacity"><input name="capacity" type="number" defaultValue={item?.capacity||0}/></Field><Field label="Maintenance Count"><input name="maintenance_count" type="number" defaultValue={item?.maintenance_count||0}/></Field><Field label="Status"><select name="status" defaultValue={item?.status||'Operational'}><option>Operational</option><option>At Capacity</option><option>Maintenance</option></select></Field><button className="primary"><Save size={16}/> Save Camp</button></form></Modal>; }
+function RoomForm({ctx,close,item}){ const [campId,setCampId]=useState(item?.camp_id||''); const camp=ctx.data.camps.find(c=>c.id===campId); return <Modal title={item?'Edit Room':'Register New Room'} onClose={close} wide><form className="formGrid" onSubmit={e=>{e.preventDefault(); const fd=new FormData(e.currentTarget); const p=Object.fromEntries(fd); p.camp_id=campId||null; p.camp_name=camp?.name||item?.camp_name||''; p.capacity=Number(p.capacity||0); p.occupied=Number(p.occupied||0); item?ctx.update('rooms',item.id,p):ctx.insert('rooms',p);}}><Field label="Camp"><SelectCamp ctx={ctx} defaultValue={campId} onChange={e=>setCampId(e.target.value)}/></Field><Field label="Room No."><input name="room_no" defaultValue={item?.room_no} required/></Field><Field label="Floor"><input name="floor" defaultValue={item?.floor}/></Field><Field label="Capacity"><input name="capacity" type="number" defaultValue={item?.capacity||0}/></Field><Field label="Occupied"><input name="occupied" type="number" defaultValue={item?.occupied||0}/></Field><Field label="Status"><select name="status" defaultValue={item?.status||'Available'}><option>Available</option><option>Occupied</option><option>Maintenance</option></select></Field><button className="primary">Save Room</button></form></Modal>; }
+function TenantForm({ctx,close,item}){ const [companyId,setCompanyId]=useState(item?.company_id||''); const [campId,setCampId]=useState(item?.camp_id||''); const [roomId,setRoomId]=useState(item?.room_id||''); const company=ctx.data.companies.find(c=>c.id===companyId); const camp=ctx.data.camps.find(c=>c.id===campId); const rooms=ctx.data.rooms.filter(r=>!campId||r.camp_id===campId); const room=ctx.data.rooms.find(r=>r.id===roomId); return <Modal title={item?'Edit Tenant':'Register New Tenant'} onClose={close} wide><form className="formGrid" onSubmit={e=>{e.preventDefault(); const fd=new FormData(e.currentTarget); const p=Object.fromEntries(fd); p.company_id=companyId||null; p.company=company?.name||item?.company||''; p.camp_id=campId||null; p.camp_name=camp?.name||item?.camp_name||''; p.room_id=roomId||null; p.room=room?.room_no||item?.room||''; p.docs_complete=fd.get('docs_complete')==='on'; item?ctx.update('tenants',item.id,p):ctx.insert('tenants',p);}}><Field label="Tenant Name"><input name="name" defaultValue={item?.name} required/></Field><Field label="Company"><SelectCompany ctx={ctx} defaultValue={companyId} onChange={e=>setCompanyId(e.target.value)}/></Field><Field label="Phone"><input name="phone" defaultValue={item?.phone}/></Field><Field label="Email"><input name="email" defaultValue={item?.email}/></Field><Field label="Emirates ID"><input name="emirates_id" defaultValue={item?.emirates_id}/></Field><Field label="Passport No."><input name="passport_no" defaultValue={item?.passport_no}/></Field><Field label="Camp"><SelectCamp ctx={ctx} defaultValue={campId} onChange={e=>setCampId(e.target.value)}/></Field><Field label="Room"><select value={roomId} onChange={e=>setRoomId(e.target.value)}><option value="">Select room</option>{rooms.map(r=><option key={r.id} value={r.id}>{r.room_no} · {r.camp_name}</option>)}</select></Field><Field label="Check-in Date"><input name="check_in_date" type="date" defaultValue={item?.check_in_date||today()}/></Field><Field label="Lease End"><input name="lease_end_date" type="date" defaultValue={item?.lease_end_date}/></Field><Field label="Status"><select name="status" defaultValue={item?.status||'Active'}><option>Active</option><option>Expiring</option><option>Checked-out</option></select></Field><label className="check"><input type="checkbox" name="docs_complete" defaultChecked={item?.docs_complete}/> Documents complete</label><button className="primary">Save Tenant</button></form></Modal>; }
+function ContractForm({ctx,close,item}){ const [companyId,setCompanyId]=useState(item?.company_id||''); const [campId,setCampId]=useState(item?.camp_id||''); const company=ctx.data.companies.find(c=>c.id===companyId); const camp=ctx.data.camps.find(c=>c.id===campId); return <Modal title={item?'Edit Contract':'Add / Renew Contract'} onClose={close} wide><form className="formGrid" onSubmit={e=>{e.preventDefault(); const fd=new FormData(e.currentTarget); const p=Object.fromEntries(fd); p.company_id=companyId||null; p.company=company?.name||item?.company||''; p.camp_id=campId||null; p.camp_name=camp?.name||item?.camp_name||''; p.monthly_rent=Number(p.monthly_rent||0); p.security_deposit=Number(p.security_deposit||0); item?ctx.update('contracts',item.id,p):ctx.insert('contracts',p);}}><Field label="Contract No."><input name="contract_no" defaultValue={item?.contract_no||`CNTR-${Date.now().toString().slice(-5)}`}/></Field><Field label="Company"><SelectCompany ctx={ctx} defaultValue={companyId} onChange={e=>setCompanyId(e.target.value)}/></Field><Field label="Camp"><SelectCamp ctx={ctx} defaultValue={campId} onChange={e=>setCampId(e.target.value)}/></Field><Field label="Start Date"><input name="start_date" type="date" defaultValue={item?.start_date||today()}/></Field><Field label="End Date"><input name="end_date" type="date" defaultValue={item?.end_date}/></Field><Field label="Monthly Rent"><input name="monthly_rent" type="number" defaultValue={item?.monthly_rent||0}/></Field><Field label="Security Deposit"><input name="security_deposit" type="number" defaultValue={item?.security_deposit||0}/></Field><Field label="Status"><select name="status" defaultValue={item?.status||'Active'}><option>Active</option><option>Expiring</option><option>Renewed</option><option>Closed</option></select></Field><button className="primary">Save Contract</button></form></Modal>; }
+function AllocationForm({ctx,close,item}){ const [tenantId,setTenantId]=useState(item?.tenant_id||''); const [campId,setCampId]=useState(item?.camp_id||''); const [roomId,setRoomId]=useState(item?.room_id||''); const tenant=ctx.data.tenants.find(t=>t.id===tenantId); const camp=ctx.data.camps.find(c=>c.id===campId); const rooms=ctx.data.rooms.filter(r=>!campId||r.camp_id===campId); const room=ctx.data.rooms.find(r=>r.id===roomId); return <Modal title={item?'Edit Allocation':'New Room Allocation'} onClose={close} wide><form className="formGrid" onSubmit={e=>{e.preventDefault(); const fd=new FormData(e.currentTarget); const p=Object.fromEntries(fd); p.tenant_id=tenantId||null; p.tenant_name=tenant?.name||item?.tenant_name||''; p.company=tenant?.company||item?.company||''; p.camp_id=campId||null; p.camp_name=camp?.name||item?.camp_name||''; p.room_id=roomId||null; p.room=room?.room_no||item?.room||''; item?ctx.update('allocations',item.id,p):ctx.insert('allocations',p);}}><Field label="Tenant"><select value={tenantId} onChange={e=>setTenantId(e.target.value)}><option value="">Select tenant</option>{ctx.data.tenants.map(t=><option key={t.id} value={t.id}>{t.name} · {t.company}</option>)}</select></Field><Field label="Camp"><SelectCamp ctx={ctx} defaultValue={campId} onChange={e=>setCampId(e.target.value)}/></Field><Field label="Room"><select value={roomId} onChange={e=>setRoomId(e.target.value)}><option value="">Select room</option>{rooms.map(r=><option key={r.id} value={r.id}>{r.room_no}</option>)}</select></Field><Field label="Allocation Date"><input name="allocation_date" type="date" defaultValue={item?.allocation_date||today()}/></Field><Field label="Checkout Date"><input name="checkout_date" type="date" defaultValue={item?.checkout_date}/></Field><Field label="Status"><select name="status" defaultValue={item?.status||'Active'}><option>Active</option><option>Checked-out</option><option>Transferred</option></select></Field><button className="primary">Save Allocation</button></form></Modal>; }
+function ChargeForm({ctx,close,item}){ const [tenantId,setTenantId]=useState(item?.tenant_id||''); const tenant=ctx.data.tenants.find(t=>t.id===tenantId); return <Modal title={item?'Edit Charge / Due':'Add Charge / Due'} onClose={close} wide><form className="formGrid" onSubmit={e=>{e.preventDefault(); const fd=new FormData(e.currentTarget); const p=Object.fromEntries(fd); p.tenant_id=tenantId||null; p.tenant_name=tenant?.name||item?.tenant_name||''; p.company=tenant?.company||item?.company||''; p.camp_name=tenant?.camp_name||item?.camp_name||''; p.room=tenant?.room||item?.room||''; p.amount_due=Number(p.amount_due||0); p.amount_paid=Number(item?.amount_paid||0); item?ctx.update('charges',item.id,p):ctx.insert('charges',p);}}><Field label="Tenant"><select value={tenantId} onChange={e=>setTenantId(e.target.value)} required><option value="">Select tenant</option>{ctx.data.tenants.map(t=><option key={t.id} value={t.id}>{t.name} · {t.room||'No room'} · {t.company||'No company'}</option>)}</select></Field><Field label="Charge Type"><select name="charge_type" defaultValue={item?.charge_type||'Rent'}><option>Rent</option><option>WiFi</option><option>Other</option></select></Field><Field label="Period"><input name="period" defaultValue={item?.period||new Date().toLocaleString('en-US',{month:'long',year:'numeric'})}/></Field><Field label="Due Date"><input name="due_date" type="date" defaultValue={item?.due_date||today()}/></Field><Field label="Amount Due"><input name="amount_due" type="number" step="0.01" defaultValue={item?.amount_due||''} required/></Field><Field label="Status"><select name="status" defaultValue={item?.status||'Unpaid'}><option>Unpaid</option><option>Partial</option><option>Fully Paid</option></select></Field><Field label="Tenant Info"><input value={tenant?[tenant.company,tenant.camp_name,tenant.room].filter(Boolean).join(' · '):'Select tenant to populate'} readOnly/></Field><button className="primary">Save Charge</button></form></Modal>; }
+function PaymentForm({ctx,close,charge}){ const [chargeId,setChargeId]=useState(charge?.id||''); const [tenantId,setTenantId]=useState(charge?.tenant_id||''); const selected=ctx.data.charges.find(c=>c.id===chargeId); const tenant=ctx.data.tenants.find(t=>t.id===(selected?.tenant_id||tenantId)); return <Modal title="Record Payment" onClose={close} wide><form className="formGrid" onSubmit={async e=>{e.preventDefault(); const fd=new FormData(e.currentTarget); const amount=Number(fd.get('amount')||0); if(amount<=0) return ctx.showToast('Enter payment amount'); const ch=ctx.data.charges.find(c=>c.id===fd.get('charge_id')); const t=ctx.data.tenants.find(x=>x.id===(ch?.tenant_id||tenantId)); const payload={charge_id:ch?.id||null,tenant_id:t?.id||null,tenant_name:ch?.tenant_name||t?.name||'',company:ch?.company||t?.company||'',payment_date:fd.get('payment_date'),method:fd.get('method'),amount,receipt_no:fd.get('receipt_no'),notes:fd.get('notes')}; const {error}=await supabase.from('payments').insert(payload); if(error) return ctx.showToast(error.message); if(ch){ const paid=Number(ch.amount_paid||0)+amount; const {error:upErr}=await supabase.from('charges').update({amount_paid:paid,status:paid>=Number(ch.amount_due||0)?'Fully Paid':'Partial',receipt_no:fd.get('receipt_no')}).eq('id',ch.id); if(upErr) return ctx.showToast(upErr.message); } await ctx.loadAll(); close(); ctx.showToast('Payment saved'); }}><Field label="Link to Charge / Due"><select name="charge_id" value={chargeId} onChange={e=>setChargeId(e.target.value)}><option value="">No linked charge / direct payment</option>{ctx.data.charges.filter(c=>Number(c.balance||0)>0).map(c=><option key={c.id} value={c.id}>{c.tenant_name} · {c.charge_type} · Balance {money(c.balance)}</option>)}</select></Field><Field label="Tenant"><select value={tenant?.id||tenantId} onChange={e=>setTenantId(e.target.value)} disabled={!!selected}><option value="">Select tenant</option>{ctx.data.tenants.map(t=><option key={t.id} value={t.id}>{t.name} · {t.company}</option>)}</select></Field><Field label="Payment Date"><input name="payment_date" type="date" defaultValue={today()}/></Field><Field label="Method"><select name="method"><option>Cash</option><option>Bank Transfer</option><option>Cheque</option><option>Card</option></select></Field><Field label="Amount Paid"><input name="amount" type="number" step="0.01" defaultValue={selected?.balance||''} required/></Field><Field label="Receipt No."><input name="receipt_no" defaultValue={`LC-${Date.now().toString().slice(-6)}`}/></Field><Field label="Tenant Info"><input value={tenant?[tenant.company,tenant.camp_name,tenant.room].filter(Boolean).join(' · '):'Select tenant to populate'} readOnly/></Field><Field label="Notes"><textarea name="notes"/></Field><button className="primary">Save Payment</button></form></Modal>; }
+function ExpenseForm({ctx,close,item}){ const [campId,setCampId]=useState(item?.camp_id||''); const [file,setFile]=useState(null); const camp=ctx.data.camps.find(c=>c.id===campId); return <Modal title={item?'Edit Expense':'Add New Expense'} onClose={close} wide><form className="formGrid" onSubmit={async e=>{e.preventDefault(); const fd=new FormData(e.currentTarget); let invoice_path=item?.invoice_path||''; if(file){ const path=`${Date.now()}_${file.name}`; const {error}=await supabase.storage.from('invoices').upload(path,file,{upsert:true}); if(error) return ctx.showToast(error.message); invoice_path=path; } const p=Object.fromEntries(fd); p.camp_id=campId||null; p.camp_name=camp?.name||item?.camp_name||''; p.amount=Number(p.amount||0); p.invoice_path=invoice_path; item?ctx.update('expenses',item.id,p):ctx.insert('expenses',p);}}><Field label="Category"><select name="category" defaultValue={item?.category||'DEWA'}><option>DEWA</option><option>Gas</option><option>Salaries</option><option>Maintenance</option><option>Landlord Rent</option><option>Other</option></select></Field><Field label="Vendor / Recipient"><input name="vendor" defaultValue={item?.vendor} required/></Field><Field label="Camp"><SelectCamp ctx={ctx} defaultValue={campId} onChange={e=>setCampId(e.target.value)}/></Field><Field label="Amount"><input name="amount" type="number" step="0.01" defaultValue={item?.amount||''} required/></Field><Field label="Expense Date"><input name="expense_date" type="date" defaultValue={item?.expense_date||today()}/></Field><Field label="Status"><select name="status" defaultValue={item?.status||'Paid'}><option>Paid</option><option>Processed</option><option>Pending</option><option>Overdue</option></select></Field><Field label="Payment Method"><select name="payment_method" defaultValue={item?.payment_method||'Cash'}><option>Cash</option><option>Bank Transfer</option><option>Cheque</option><option>Card</option></select></Field><Field label="Invoice No."><input name="invoice_no" defaultValue={item?.invoice_no}/></Field><Field label="Upload Invoice"><input type="file" onChange={e=>setFile(e.target.files?.[0])}/></Field><Field label="Notes"><textarea name="notes" defaultValue={item?.notes}/></Field><button className="primary">Save Expense</button></form></Modal>; }
+function ChequeForm({ctx,close,item}){ return <Modal title={item?'Edit Cheque':'Register New Cheque'} onClose={close} wide><form className="formGrid" onSubmit={e=>{e.preventDefault(); const fd=new FormData(e.currentTarget); const p=Object.fromEntries(fd); p.amount=Number(p.amount||0); item?ctx.update('cheques',item.id,p):ctx.insert('cheques',p);}}><Field label="Cheque No."><input name="cheque_no" defaultValue={item?.cheque_no} required/></Field><Field label="Bank Name"><input name="bank_name" defaultValue={item?.bank_name}/></Field><Field label="Company"><input name="company" defaultValue={item?.company}/></Field><Field label="Tenant"><input name="tenant_name" defaultValue={item?.tenant_name}/></Field><Field label="Amount"><input name="amount" type="number" defaultValue={item?.amount||0}/></Field><Field label="Cheque Date"><input name="cheque_date" type="date" defaultValue={item?.cheque_date}/></Field><Field label="Due Date"><input name="due_date" type="date" defaultValue={item?.due_date||today()}/></Field><Field label="Status"><select name="status" defaultValue={item?.status||'In Hand'}><option>In Hand</option><option>Deposited</option><option>Cleared</option><option>Bounced</option><option>Returned</option></select></Field><Field label="Notes"><textarea name="notes" defaultValue={item?.notes}/></Field><button className="primary">Save Cheque</button></form></Modal>; }
+function TicketForm({ctx}){ return <form className="supportForm" onSubmit={e=>{e.preventDefault(); const fd=new FormData(e.currentTarget); ctx.insert('support_tickets',Object.fromEntries(fd)); e.currentTarget.reset();}}><Field label="Subject"><input name="subject" required/></Field><Field label="Priority"><select name="priority"><option>Normal</option><option>High</option><option>Urgent</option></select></Field><Field label="Description"><textarea name="description"/></Field><button className="primary">Submit Ticket</button></form>; }
+function TicketFormModal({ctx,close,item}){ return <Modal title={item?'Edit Ticket':'New Support Ticket'} onClose={close} wide><form className="formGrid" onSubmit={e=>{e.preventDefault(); const fd=new FormData(e.currentTarget); const p=Object.fromEntries(fd); item?ctx.update('support_tickets',item.id,p):ctx.insert('support_tickets',p);}}><Field label="Subject"><input name="subject" defaultValue={item?.subject} required/></Field><Field label="Priority"><select name="priority" defaultValue={item?.priority||'Normal'}><option>Normal</option><option>High</option><option>Urgent</option></select></Field><Field label="Status"><select name="status" defaultValue={item?.status||'Open'}><option>Open</option><option>In Progress</option><option>Closed</option></select></Field><Field label="Description"><textarea name="description" defaultValue={item?.description}/></Field><button className="primary">Save Ticket</button></form></Modal>; }
+function TenantView({ctx,close,item}){ const charges=ctx.data.charges.filter(c=>c.tenant_id===item.id||c.tenant_name===item.name); return <Modal title="Tenant Profile" onClose={close} wide><div className="profile"><h2>{item.name}</h2><p>{item.company} · {item.room} · {item.camp_name}</p><div className="kpiGrid"><Kpi label="Status" value={item.status}/><Kpi label="Balance" value={money(sum(charges,'balance'))}/><Kpi label="Documents" value={item.docs_complete?'Complete':'Pending'}/></div><ChargesTable rows={charges} ctx={ctx}/></div></Modal>; }
+
+createRoot(document.getElementById('root')).render(<App/>);
