@@ -122,7 +122,7 @@ function RoomTable({rows,ctx}){
     return <React.Fragment key={r.id}>
       <tr className={isOpen?'expandedRow':''}>
         <td><button className="accordionToggle" onClick={()=>setOpenId(isOpen?null:r.id)}>{isOpen?'⌄':'›'}</button></td>
-        <td><b>{r.room_no}</b><small>Room ID</small></td>
+        <td><b>{r.room_no}</b></td>
         <td>{r.camp_name||'—'}</td>
         <td>{r.floor||'—'}</td>
         <td><span className="pillNum">{r.capacity||0}</span></td>
