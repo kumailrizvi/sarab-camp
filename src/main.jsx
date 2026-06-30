@@ -157,19 +157,41 @@ function MultiRoomSelect({rooms, value, onChange}){
 }
 function CategoryPicker({ctx, value, onChange}){
   const [newCat,setNewCat]=useState('');
-  const cats=getExpenseCategories(ctx);
+  const base=['DEWA','Gas','Salaries','Maintenance','Landlord Rent','Other'];
+  const stored=(ctx.data.expense_categories||[]).filter(c=>c.name);
+  const storedNames=stored.map(c=>c.name);
+  const categories=[
+    ...base.map(name=>({name,type:'default'})),
+    ...stored.filter(c=>!base.includes(c.name)).map(c=>({name:c.name,id:c.id,type:'custom'}))
+  ];
   async function addCategory(){
     const name=newCat.trim();
     if(!name) return;
-    if(cats.includes(name)){ onChange(name); setNewCat(''); return; }
+    if([...base,...storedNames].includes(name)){ onChange(name); setNewCat(''); return; }
     const {error}=await supabase.from('expense_categories').insert({name});
     if(error) return ctx.showToast(error.message);
     await ctx.loadAll();
     onChange(name); setNewCat(''); ctx.showToast('Category added');
   }
-  return <div className="categoryPicker">
-    <div className="categoryOptions">{cats.map(c=><button type="button" key={c} className={value===c?'picked':''} onClick={()=>onChange(c)}><span className="radioDot"/>{c}</button>)}</div>
-    <div className="categoryAdd"><input value={newCat} onChange={e=>setNewCat(e.target.value)} placeholder="Add category"/><button type="button" className="secondary miniBtn" onClick={addCategory}><Plus size={16}/></button></div>
+  async function deleteCategory(cat){
+    if(cat.type!=='custom' || !cat.id) return;
+    if(!confirm(`Delete category "${cat.name}"? Existing expenses keep their category text.`)) return;
+    await ctx.remove('expense_categories', cat.id);
+    if(value===cat.name) onChange('DEWA');
+  }
+  return <div className="categoryPicker proCategoryPicker">
+    <div className="categoryPickerTop">
+      <div><b>Expense category</b><span>Choose one category or add your own for future expenses.</span></div>
+      <strong>{value || 'None selected'}</strong>
+    </div>
+    <div className="categoryOptions categoryGrid">{categories.map(c=><div key={`${c.type}-${c.name}`} className={`categoryCard ${value===c.name?'picked':''}`}>
+      <button type="button" onClick={()=>onChange(c.name)} className="categorySelectBtn">
+        <span className="radioDot"/>
+        <span className="categoryText"><b>{c.name}</b><em>{c.type==='custom'?'Custom':'Default'}</em></span>
+      </button>
+      {c.type==='custom'&&<button type="button" className="categoryDeleteBtn" title={`Delete ${c.name}`} onClick={()=>deleteCategory(c)}><Trash2 size={15}/></button>}
+    </div>)}</div>
+    <div className="categoryAdd categoryAddPro"><input value={newCat} onChange={e=>setNewCat(e.target.value)} placeholder="Add new category, e.g. Food, Transport, Cleaning"/><button type="button" className="primary miniBtn" onClick={addCategory}><Plus size={16}/></button></div>
   </div>;
 }
 function roomNamesByIds(ctx, ids){ return (ids||[]).map(id=>ctx.data.rooms.find(r=>r.id===id)?.room_no).filter(Boolean).join(', '); }
