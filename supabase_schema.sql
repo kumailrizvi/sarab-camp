@@ -198,3 +198,25 @@ begin
     execute format('create policy "authenticated write %1$s" on public.%1$I for all to authenticated using (true) with check (true)', t);
   end loop;
 end $$;
+
+
+-- v12 upgrades: multi-room contracts/tenants/allocations + custom expense categories
+create table if not exists public.expense_categories (
+  id uuid primary key default gen_random_uuid(),
+  created_at timestamptz not null default now(),
+  name text unique not null
+);
+insert into public.expense_categories (name) values
+('DEWA'),('Gas'),('Salaries'),('Maintenance'),('Landlord Rent'),('Other')
+on conflict (name) do nothing;
+
+alter table public.contracts add column if not exists room_ids jsonb default '[]'::jsonb;
+alter table public.contracts add column if not exists rooms text;
+alter table public.tenants add column if not exists room_ids jsonb default '[]'::jsonb;
+alter table public.allocations add column if not exists room_ids jsonb default '[]'::jsonb;
+alter table public.expense_categories enable row level security;
+drop policy if exists "authenticated read expense_categories" on public.expense_categories;
+drop policy if exists "authenticated write expense_categories" on public.expense_categories;
+create policy "authenticated read expense_categories" on public.expense_categories for select to authenticated using (true);
+create policy "authenticated write expense_categories" on public.expense_categories for all to authenticated using (true) with check (true);
+notify pgrst, 'reload schema';
