@@ -9,6 +9,7 @@ const modules = [
   ['companies', Building2, 'Companies'],
   ['contracts', FileText, 'Contracts'],
   ['camps', Home, 'Camps'],
+  ['rooms', BedDouble, 'Rooms'],
   ['tenants', Users, 'Tenants'],
   ['allocations', DoorOpen, 'Allocations'],
   ['rent', HandCoins, 'Rent Collection'],
@@ -43,7 +44,7 @@ function AuthScreen(){
 }
 
 function App(){
-  const [session,setSession]=useState(null); const [loading,setLoading]=useState(true); const [page,setPage]=useState('dashboard'); const [query,setQuery]=useState(''); const [modal,setModal]=useState(null); const [toast,setToast]=useState('');
+  const [session,setSession]=useState(null); const [loading,setLoading]=useState(true); const [page,setPage]=useState('dashboard'); const [query,setQuery]=useState(''); const [modal,setModal]=useState(null); const [toast,setToast]=useState(''); const [roomCampFilter,setRoomCampFilter]=useState('');
   const [data,setData]=useState(Object.fromEntries(tables.map(t=>[t,[]])));
   const showToast = m => { setToast(m); setTimeout(()=>setToast(''),2400); };
   useEffect(()=>{ if(!supabase){setLoading(false);return;} supabase.auth.getSession().then(({data})=>{setSession(data.session); setLoading(false);}); const {data:sub}=supabase.auth.onAuthStateChange((_e,s)=>setSession(s)); return()=>sub.subscription.unsubscribe(); },[]);
@@ -56,8 +57,8 @@ function App(){
   if(!session) return <AuthScreen/>;
   async function importRecords(table, rows){ const cleaned=cleanImportRows(table,rows); if(!table) return showToast('Import not available on this page'); if(!cleaned.length) return showToast('No rows found in CSV'); const {error}=await supabase.from(table).insert(cleaned); if(error) return showToast(error.message); await loadAll(); setModal(null); showToast(`Imported ${cleaned.length} rows`); }
   async function deleteCurrentPage(){ const ts=getPageTables(page); if(!ts.length) return showToast('No data table on this page'); if(!confirm(`Delete all data for ${modules.find(m=>m[0]===page)?.[2]}? This cannot be undone.`)) return; for(const t of ts){ const ids=(data[t]||[]).map(r=>r.id).filter(Boolean); if(ids.length){ const {error}=await supabase.from(t).delete().in('id',ids); if(error) return showToast(error.message); }} await loadAll(); showToast('Data deleted'); }
-  const ctx={data,query,setModal,insert,update,remove,loadAll,showToast,setPage,importRecords,deleteCurrentPage,page};
-  return <div className="app"><aside><div className="brand"><h1>LaborConnect</h1><p>Sarab Al Madina's Portal</p></div><nav>{modules.map(([key,Icon,label])=><React.Fragment key={key}><button onClick={()=>setPage(key)} className={page===key?'active':''}><Icon size={18}/>{label}</button>{key==='camps'&&<div className="subNav"><button onClick={()=>setPage('rooms')} className={page==='rooms'?'active':''}><BedDouble size={16}/> Rooms</button></div>}</React.Fragment>)}</nav><div className="user"><div>A</div><span><b>Asama Ashraf</b><small>Manager</small></span><button onClick={()=>supabase.auth.signOut()} title="Logout"><LogOut size={16}/></button></div></aside><main><header><div className="search"><Search size={18}/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search across enterprise..."/></div></header><Content page={page} ctx={ctx}/></main>{modal&&<DynamicModal modal={modal} ctx={ctx} close={()=>setModal(null)}/>}<Toast msg={toast}/></div>;
+  const ctx={data,query,setModal,insert,update,remove,loadAll,showToast,setPage,importRecords,deleteCurrentPage,page,roomCampFilter,setRoomCampFilter};
+  return <div className="app"><aside><div className="brand"><h1>LaborConnect</h1><p>Sarab Al Madina's Portal</p></div><nav>{modules.map(([key,Icon,label])=><React.Fragment key={key}><button onClick={()=>{setPage(key); if(key==='rooms') setRoomCampFilter('');}} className={page===key?'active':''}><Icon size={18}/>{label}</button>{key==='camps'&&data.camps.length>0&&<div className="subNav campSubNav">{data.camps.map(c=><button key={c.id} onClick={()=>{setRoomCampFilter(c.id); setPage('rooms');}} className={page==='rooms'&&roomCampFilter===c.id?'active':''}><Home size={15}/><span>{c.name}</span></button>)}</div>}</React.Fragment>)}</nav><div className="user"><div>A</div><span><b>Asama Ashraf</b><small>Manager</small></span><button onClick={()=>supabase.auth.signOut()} title="Logout"><LogOut size={16}/></button></div></aside><main><header><div className="search"><Search size={18}/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search across enterprise..."/></div></header><Content page={page} ctx={ctx}/></main>{modal&&<DynamicModal modal={modal} ctx={ctx} close={()=>setModal(null)}/>}<Toast msg={toast}/></div>;
 }
 function defaultModal(page){ return ({companies:'company',contracts:'contract',camps:'camp',rooms:'room',tenants:'tenant',allocations:'allocation',rent:'charge',expenses:'expense',cheques:'cheque',support:'ticket'})[page] || 'company'; }
 function Content({page,ctx}){ const map={dashboard:Dashboard,companies:Companies,contracts:Contracts,camps:Camps,rooms:Rooms,tenants:Tenants,allocations:Allocations,rent:Rent,expenses:Expenses,cheques:Cheques,settings:SettingsPage,support:Support}; const C=map[page]||Dashboard; return <C ctx={ctx}/>; }
@@ -103,7 +104,7 @@ function Camps({ctx}){
   const roomRows=filterRows(ctx.data.rooms.filter(r=>!selectedCamp?.id || r.camp_id===selectedCamp.id),ctx.query,['room_no','camp_name','status']);
   return <section><div className="heroTitle"><Title title="Camp Directory" sub="Residential camp master records, capacity, rooms and operational status."/><PageActions ctx={ctx} page="camps" rows={campRows} onAdd={()=>ctx.setModal({type:'camp'})} newLabel="Add Camp"/></div><Card title="Camps">{!campRows.length?<Empty title="No camps yet" text="Add a camp first, then add rooms under it." action={()=>ctx.setModal({type:'camp'})}/>:<div className="campRoomLayout"><div className="campList">{campRows.map(c=><button key={c.id} className={selectedCamp?.id===c.id?'on':''} onClick={()=>setSelectedCampId(c.id)}><b>{c.name}</b><span>{c.location||'—'} · {c.emirate||'—'}</span><em>{ctx.data.rooms.filter(r=>r.camp_id===c.id).length} rooms</em></button>)}</div><div className="campDetail"><div className="campDetailHead"><div><h3>{selectedCamp?.name}</h3><p>{selectedCamp?.location} {selectedCamp?.emirate}</p></div><div className="btnRow"><button className="secondary" onClick={()=>ctx.setModal({type:'camp',item:selectedCamp})}><Edit3 size={16}/> Edit Camp</button><button className="primary" onClick={()=>ctx.setModal({type:'room',camp:selectedCamp})}><Plus size={16}/> Add Room</button></div></div><RoomTable rows={roomRows} ctx={ctx}/></div></div>}</Card></section>;
 }
-function Rooms({ctx}){ const rows=filterRows(ctx.data.rooms,ctx.query,['room_no','camp_name','status']); return <section><div className="heroTitle"><Title title="Room Directory" sub="Room inventory, capacity and occupancy management."/><PageActions ctx={ctx} page="rooms" rows={rows} onAdd={()=>ctx.setModal({type:'room'})} newLabel="Add Room"/></div><Card><RoomTable rows={rows} ctx={ctx}/></Card></section>; }
+function Rooms({ctx}){ const activeCamp=ctx.data.camps.find(c=>c.id===ctx.roomCampFilter); const base=ctx.roomCampFilter?ctx.data.rooms.filter(r=>r.camp_id===ctx.roomCampFilter):ctx.data.rooms; const rows=filterRows(base,ctx.query,['room_no','camp_name','status']); return <section><div className="heroTitle"><Title title={activeCamp?`${activeCamp.name} Rooms`:'Room Directory'} sub={activeCamp?`Showing rooms for ${activeCamp.name}. Use Camps in the sidebar to switch.`:'Room inventory, capacity and occupancy management.'}/><PageActions ctx={ctx} page="rooms" rows={rows} onAdd={()=>ctx.setModal({type:'room',camp:activeCamp})} newLabel="Add Room"/></div><div className="roomFilterStrip"><div><b>{activeCamp?activeCamp.name:'All Camps'}</b><span>{rows.length} rooms shown</span></div>{activeCamp&&<button className="secondary" onClick={()=>ctx.setRoomCampFilter('')}>Show all rooms</button>}</div><Card><RoomTable rows={rows} ctx={ctx}/></Card></section>; }
 function RoomTable({rows,ctx}){ if(!rows.length) return <Empty title="No rooms for this camp" text="Add rooms under the selected camp to start assigning tenants." action={()=>ctx.setModal({type:'room'})}/>; return <table className="roomTable"><thead><tr><th>Room</th><th>Camp</th><th>Floor</th><th>Capacity</th><th>Occupied</th><th>Status</th><th>Actions</th></tr></thead><tbody>{rows.map(r=><tr key={r.id}><td><b>{r.room_no}</b><small>Room ID</small></td><td>{r.camp_name||'—'}</td><td>{r.floor||'—'}</td><td><span className="pillNum">{r.capacity||0}</span></td><td><span className="pillNum occupied">{r.occupied||0}</span></td><td><Badge>{r.status}</Badge></td><td className="rowActions"><button onClick={()=>ctx.setModal({type:'room',item:r})}><Edit3 size={16}/></button><button onClick={()=>ctx.remove('rooms',r.id)}><Trash2 size={16}/></button></td></tr>)}</tbody></table>; }
 function Tenants({ctx}){ const rows=filterRows(ctx.data.tenants,ctx.query,['name','company','emirates_id','room','camp_name','status']); return <Directory ctx={ctx} page="tenants" title="Tenant Directory" sub="Tenant registry, documents, room and company allocation." rows={rows} cols={['Tenant','Company','Room / Camp','Emirates ID','Lease End','Status']} render={t=>[<b>{t.name}</b>,t.company,`${t.room||'—'} / ${t.camp_name||'—'}`,t.emirates_id,t.lease_end_date,<Badge>{t.status}</Badge>]} onAdd={()=>ctx.setModal({type:'tenant'})} onView={t=>ctx.setModal({type:'tenantView',item:t})} onEdit={t=>ctx.setModal({type:'tenant',item:t})} onDelete={t=>ctx.remove('tenants',t.id)}/>; }
 function Allocations({ctx}){ const rows=filterRows(ctx.data.allocations,ctx.query,['tenant_name','company','camp_name','room','status']); return <Directory ctx={ctx} page="allocations" title="Room Allocation" sub="Assign tenants to camps and rooms, then track checkout status." rows={rows} cols={['Tenant','Company','Camp','Room','Date','Status']} render={a=>[a.tenant_name,a.company,a.camp_name,a.room,a.allocation_date,<Badge>{a.status}</Badge>]} onAdd={()=>ctx.setModal({type:'allocation'})} onEdit={a=>ctx.setModal({type:'allocation',item:a})} onDelete={a=>ctx.remove('allocations',a.id)}/>; }
@@ -137,20 +138,22 @@ function getCompanyRooms(ctx, companyId, campId){
 }
 function MultiRoomSelect({rooms, value, onChange}){
   const vals=Array.isArray(value)?value:[];
-  const allSelected=rooms.length>0 && rooms.every(r=>vals.includes(r.id));
   const toggle=id=>onChange(vals.includes(id)?vals.filter(x=>x!==id):[...vals,id]);
-  const selectAll=()=>onChange(allSelected?[]:rooms.map(r=>r.id));
-  if(!rooms.length) return <div className="roomPickEmpty">No rooms available for the selected camp/company.</div>;
-  return <div className="roomPicker">
-    <div className="roomPickerHead"><b>{vals.length} selected</b><button type="button" className="secondary small" onClick={selectAll}>{allSelected?'Clear all':'Select all'}</button></div>
+  const visible=rooms||[];
+  const allSelected=visible.length>0 && visible.every(r=>vals.includes(r.id));
+  const selectAll=()=>onChange(allSelected?[]:visible.map(r=>r.id));
+  if(!visible.length) return <div className="roomPickEmpty">Select a company/camp first, or add rooms for this camp.</div>;
+  return <div className="roomPicker polishedRoomPicker">
+    <div className="roomPickerHead"><div><b>{vals.length} selected</b><span>{visible.length} available rooms</span></div><button type="button" className="secondary small" onClick={selectAll}>{allSelected?'Clear all':'Select all'}</button></div>
+    <div className="selectedRoomPills">{vals.length?visible.filter(r=>vals.includes(r.id)).slice(0,8).map(r=><span key={r.id}>{r.room_no}</span>):<em>No rooms selected yet</em>}{vals.length>8&&<span>+{vals.length-8} more</span>}</div>
     <div className="roomOptions">
-      {rooms.map(r=><button type="button" key={r.id} className={vals.includes(r.id)?'picked':''} onClick={()=>toggle(r.id)}>
+      {visible.map(r=><button type="button" key={r.id} onClick={()=>toggle(r.id)} className={vals.includes(r.id)?'picked':''}>
         <span className="checkDot">{vals.includes(r.id)?'✓':''}</span>
         <strong>{r.room_no}</strong>
-        <em>{r.camp_name || 'Camp'} · cap {r.capacity||0}</em>
+        <em>{r.camp_name||'Camp'} · cap {r.capacity||0} · occ {r.occupied||0}</em>
       </button>)}
     </div>
-  </div>;
+  </div>
 }
 function CategoryPicker({ctx, value, onChange}){
   const [newCat,setNewCat]=useState('');
